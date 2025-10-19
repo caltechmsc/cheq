@@ -1,0 +1,136 @@
+# =======================================================================================
+# Atomic Parameters for the `cheq` Library's Slater-Type Orbital (STO) Model
+# =======================================================================================
+#
+# This file provides a set of atomic parameters for the QEq-STO model,
+# covering elements with atomic numbers from 1 to 103. The data is aggregated from
+# multiple authoritative sources following a strict priority scheme to balance
+# fidelity to the original QEq paper with broad element coverage.
+#
+# ---------------------------------------------------------------------------------------
+# Units Convention:
+# ---------------------------------------------------------------------------------------
+# chi    : Electronegativity            [electronvolts, eV]
+# j      : Hardness                     [electronvolts, eV]
+# radius : Covalent Radius              [Angstroms, Å]
+# n      : Principal Quantum Number     [dimensionless]
+# ---------------------------------------------------------------------------------------
+
+[elements]
+
+# --- Row 1 ---
+"H" = { chi = 4.5280, j = 13.8904, radius = 0.371, n = 1 }
+"He" = { chi = 9.66, j = 29.84, radius = 0.28, n = 1 }
+
+# --- Row 2 ---
+"Li" = { chi = 3.006, j = 4.772, radius = 1.28, n = 2 }
+"Be" = { chi = 4.877, j = 8.886, radius = 0.96, n = 2 }
+"B" = { chi = 5.11, j = 9.50, radius = 0.85, n = 2 }
+"C" = { chi = 5.343, j = 10.126, radius = 0.759, n = 2 }
+"N" = { chi = 6.899, j = 11.760, radius = 0.715, n = 2 }
+"O" = { chi = 8.741, j = 13.364, radius = 0.669, n = 2 }
+"F" = { chi = 10.874, j = 14.948, radius = 0.706, n = 2 }
+"Ne" = { chi = 11.04, j = 21.10, radius = 0.58, n = 2 }
+
+# --- Row 3 ---
+"Na" = { chi = 2.843, j = 4.592, radius = 2.085, n = 3 }
+"Mg" = { chi = 3.951, j = 7.386, radius = 1.41, n = 3 }
+"Al" = { chi = 4.06, j = 7.18, radius = 1.21, n = 3 }
+"Si" = { chi = 4.168, j = 6.974, radius = 1.176, n = 3 }
+"P" = { chi = 5.463, j = 8.000, radius = 1.102, n = 3 }
+"S" = { chi = 6.928, j = 8.972, radius = 1.047, n = 3 }
+"Cl" = { chi = 8.564, j = 9.892, radius = 0.994, n = 3 }
+"Ar" = { chi = 9.465, j = 12.71, radius = 1.06, n = 3 }
+
+# --- Row 4 ---
+"K" = { chi = 2.421, j = 3.840, radius = 2.586, n = 4 }
+"Ca" = { chi = 3.231, j = 5.76, radius = 1.76, n = 4 }
+"Sc" = { chi = 3.395, j = 6.16, radius = 1.70, n = 4 }
+"Ti" = { chi = 3.47, j = 6.76, radius = 1.60, n = 4 }
+"V" = { chi = 3.65, j = 6.82, radius = 1.53, n = 4 }
+"Cr" = { chi = 3.415, j = 7.73, radius = 1.39, n = 4 }
+"Mn" = { chi = 3.325, j = 8.21, radius = 1.39, n = 4 }
+"Fe" = { chi = 3.76, j = 8.28, radius = 1.32, n = 4 }
+"Co" = { chi = 4.105, j = 8.35, radius = 1.26, n = 4 }
+"Ni" = { chi = 4.465, j = 8.41, radius = 1.24, n = 4 }
+"Cu" = { chi = 4.2, j = 8.44, radius = 1.32, n = 4 }
+"Zn" = { chi = 5.106, j = 8.57, radius = 1.22, n = 4 }
+"Ga" = { chi = 3.641, j = 6.32, radius = 1.22, n = 4 }
+"Ge" = { chi = 4.051, j = 6.876, radius = 1.20, n = 4 }
+"As" = { chi = 5.188, j = 7.618, radius = 1.19, n = 4 }
+"Se" = { chi = 6.428, j = 8.262, radius = 1.20, n = 4 }
+"Br" = { chi = 7.790, j = 8.850, radius = 1.141, n = 4 }
+"Kr" = { chi = 8.505, j = 11.43, radius = 1.16, n = 4 }
+
+# --- Row 5 ---
+"Rb" = { chi = 2.331, j = 3.692, radius = 2.770, n = 5 }
+"Sr" = { chi = 3.024, j = 4.88, radius = 1.95, n = 5 }
+"Y" = { chi = 3.83, j = 5.62, radius = 1.90, n = 5 }
+"Zr" = { chi = 3.4, j = 7.10, radius = 1.75, n = 5 }
+"Nb" = { chi = 3.55, j = 6.76, radius = 1.64, n = 5 }
+"Mo" = { chi = 3.465, j = 7.51, radius = 1.54, n = 5 }
+"Tc" = { chi = 3.29, j = 7.98, radius = 1.47, n = 5 }
+"Ru" = { chi = 3.575, j = 8.03, radius = 1.46, n = 5 }
+"Rh" = { chi = 3.975, j = 8.01, radius = 1.42, n = 5 }
+"Pd" = { chi = 4.32, j = 8.00, radius = 1.39, n = 5 }
+"Ag" = { chi = 4.436, j = 6.268, radius = 1.45, n = 5 }
+"Cd" = { chi = 5.034, j = 7.914, radius = 1.44, n = 5 }
+"In" = { chi = 3.506, j = 5.792, radius = 1.42, n = 5 }
+"Sn" = { chi = 3.987, j = 6.248, radius = 1.39, n = 5 }
+"Sb" = { chi = 4.899, j = 6.684, radius = 1.39, n = 5 }
+"Te" = { chi = 5.816, j = 7.052, radius = 1.38, n = 5 }
+"I" = { chi = 6.822, j = 7.524, radius = 1.333, n = 5 }
+"Xe" = { chi = 7.595, j = 9.95, radius = 1.40, n = 5 }
+
+# --- Row 6 ---
+"Cs" = { chi = 2.183, j = 3.422, radius = 2.984, n = 6 }
+"Ba" = { chi = 2.814, j = 4.792, radius = 2.15, n = 6 }
+"La" = { chi = 2.8355, j = 5.483, radius = 2.07, n = 6 }
+"Ce" = { chi = 2.774, j = 5.384, radius = 2.04, n = 6 }
+"Pr" = { chi = 2.858, j = 5.128, radius = 2.03, n = 6 }
+"Nd" = { chi = 2.8685, j = 5.241, radius = 2.01, n = 6 }
+"Pm" = { chi = 2.881, j = 5.346, radius = 1.99, n = 6 }
+"Sm" = { chi = 2.9115, j = 5.439, radius = 1.98, n = 6 }
+"Eu" = { chi = 2.8785, j = 5.575, radius = 1.98, n = 6 }
+"Gd" = { chi = 3.1665, j = 5.949, radius = 1.96, n = 6 }
+"Tb" = { chi = 3.018, j = 5.668, radius = 1.94, n = 6 }
+"Dy" = { chi = 3.0555, j = 5.743, radius = 1.92, n = 6 }
+"Ho" = { chi = 3.127, j = 5.782, radius = 1.92, n = 6 }
+"Er" = { chi = 3.1865, j = 5.829, radius = 1.89, n = 6 }
+"Tm" = { chi = 3.2514, j = 5.8658, radius = 1.90, n = 6 }
+"Yb" = { chi = 3.2889, j = 5.93, radius = 1.87, n = 6 }
+"Lu" = { chi = 2.9629, j = 4.9258, radius = 1.87, n = 6 }
+"Hf" = { chi = 3.7, j = 6.80, radius = 1.75, n = 6 }
+"Ta" = { chi = 5.1, j = 5.70, radius = 1.70, n = 6 }
+"W" = { chi = 4.63, j = 6.62, radius = 1.62, n = 6 }
+"Re" = { chi = 3.96, j = 7.84, radius = 1.51, n = 6 }
+"Os" = { chi = 5.14, j = 7.26, radius = 1.44, n = 6 }
+"Ir" = { chi = 5.0, j = 8.00, radius = 1.41, n = 6 }
+"Pt" = { chi = 4.79, j = 8.86, radius = 1.36, n = 6 }
+"Au" = { chi = 4.894, j = 5.172, radius = 1.36, n = 6 }
+"Hg" = { chi = 6.27, j = 8.32, radius = 1.32, n = 6 }
+"Tl" = { chi = 3.2, j = 5.80, radius = 1.45, n = 6 }
+"Pb" = { chi = 3.9, j = 7.06, radius = 1.46, n = 6 }
+"Bi" = { chi = 4.69, j = 7.48, radius = 1.48, n = 6 }
+"Po" = { chi = 4.21, j = 8.42, radius = 1.40, n = 6 }
+"At" = { chi = 4.75, j = 9.50, radius = 1.50, n = 6 }
+"Rn" = { chi = 5.37, j = 10.74, radius = 1.50, n = 6 }
+
+# --- Row 7 ---
+"Fr" = { chi = 2.0, j = 4.00, radius = 2.60, n = 7 }
+"Ra" = { chi = 2.843, j = 4.868, radius = 2.21, n = 7 }
+"Ac" = { chi = 2.835, j = 5.67, radius = 2.15, n = 7 }
+"Th" = { chi = 3.175, j = 5.81, radius = 2.06, n = 7 }
+"Pa" = { chi = 2.985, j = 5.81, radius = 2.00, n = 7 }
+"U" = { chi = 3.341, j = 5.706, radius = 1.96, n = 7 }
+"Np" = { chi = 3.549, j = 5.434, radius = 1.90, n = 7 }
+"Pu" = { chi = 3.243, j = 5.638, radius = 1.87, n = 7 }
+"Am" = { chi = 2.9895, j = 6.007, radius = 1.80, n = 7 }
+"Cm" = { chi = 2.8315, j = 6.379, radius = 1.69, n = 7 }
+"Bk" = { chi = 3.1935, j = 6.0710, radius = 1.70, n = 7 }
+"Cf" = { chi = 3.197, j = 6.2020, radius = 1.69, n = 7 }
+"Es" = { chi = 3.333, j = 6.1780, radius = 1.68, n = 7 }
+"Fm" = { chi = 3.4, j = 6.2000, radius = 1.67, n = 7 }
+"Md" = { chi = 3.47, j = 6.2200, radius = 1.66, n = 7 }
+"No" = { chi = 3.475, j = 6.3500, radius = 1.65, n = 7 }
+"Lr" = { chi = 3.5, j = 6.4000, radius = 1.64, n = 7 }
