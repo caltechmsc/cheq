@@ -1,3 +1,10 @@
+//! Error types for the `cheq` library.
+//!
+//! This module provides a comprehensive `CheqError` enum that covers various failure modes,
+//! including parameter lookup failures, SCF convergence issues, linear algebra errors,
+//! I/O problems, and deserialization errors. This centralized error handling ensures
+//! consistent and actionable error reporting across all operations in the library.
+
 use std::path::PathBuf;
 use thiserror::Error;
 
