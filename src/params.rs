@@ -204,3 +204,156 @@ fn element_symbol_to_atomic_number(symbol: &str) -> Option<u8> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn create_test_toml_string() -> String {
+        r#"
+        [elements]
+        "1" = { chi = 2.20, j = 13.60, radius = 0.37, n = 1 }
+        "Fe" = { chi = 1.83, j = 7.90, radius = 1.26, n = 4 }
+        "O" = { chi = 3.44, j = 13.62, radius = 0.60, n = 2 }
+        "#
+        .to_string()
+    }
+
+    fn get_expected_parameters() -> Parameters {
+        let mut elements = HashMap::new();
+        elements.insert(
+            1,
+            ElementData {
+                electronegativity: 2.20,
+                hardness: 13.60,
+                radius: 0.37,
+                principal_quantum_number: 1,
+            },
+        );
+        elements.insert(
+            26,
+            ElementData {
+                electronegativity: 1.83,
+                hardness: 7.90,
+                radius: 1.26,
+                principal_quantum_number: 4,
+            },
+        );
+        elements.insert(
+            8,
+            ElementData {
+                electronegativity: 3.44,
+                hardness: 13.62,
+                radius: 0.60,
+                principal_quantum_number: 2,
+            },
+        );
+        Parameters { elements }
+    }
+
+    #[test]
+    fn test_load_from_str_valid() {
+        let toml_str = create_test_toml_string();
+        let params = Parameters::load_from_str(&toml_str).unwrap();
+        let expected_params = get_expected_parameters();
+        assert_eq!(params, expected_params);
+    }
+
+    #[test]
+    fn test_load_from_str_mixed_keys() {
+        let toml_str = r#"
+        [elements]
+        "1" = { chi = 2.20, j = 13.60, radius = 0.37, n = 1 } # Hydrogen by atomic number
+        "Fe" = { chi = 1.83, j = 7.90, radius = 1.26, n = 4 }  # Iron by symbol
+        "#;
+        let params = Parameters::load_from_str(toml_str).unwrap();
+        let mut elements = HashMap::new();
+        elements.insert(
+            1,
+            ElementData {
+                electronegativity: 2.20,
+                hardness: 13.60,
+                radius: 0.37,
+                principal_quantum_number: 1,
+            },
+        );
+        elements.insert(
+            26,
+            ElementData {
+                electronegativity: 1.83,
+                hardness: 7.90,
+                radius: 1.26,
+                principal_quantum_number: 4,
+            },
+        );
+        assert_eq!(params.elements, elements);
+    }
+
+    #[test]
+    fn test_load_from_str_invalid_toml() {
+        let toml_str = "this is not valid toml";
+        let result = Parameters::load_from_str(toml_str);
+        assert!(matches!(result, Err(CheqError::DeserializationError(_))));
+    }
+
+    #[test]
+    fn test_load_from_str_invalid_element_key() {
+        let toml_str = r#"
+        [elements]
+        "InvalidKey" = { chi = 1.0, j = 1.0, radius = 1.0, n = 1 }
+        "#;
+        let result = Parameters::load_from_str(toml_str);
+        assert!(result.is_err());
+        let error_string = result.unwrap_err().to_string();
+        assert!(error_string.contains("invalid element key: 'InvalidKey'"));
+    }
+
+    #[test]
+    fn test_load_from_str_missing_field() {
+        let toml_str = r#"
+        [elements]
+        "1" = { chi = 2.20, j = 13.60, radius = 0.37 } # Missing 'n'
+        "#;
+        let result = Parameters::load_from_str(toml_str);
+        assert!(matches!(result, Err(CheqError::DeserializationError(_))));
+    }
+
+    #[test]
+    fn test_load_from_file_valid() {
+        let toml_str = create_test_toml_string();
+        let mut temp_file = NamedTempFile::new().unwrap();
+        write!(temp_file, "{}", toml_str).unwrap();
+
+        let params = Parameters::load_from_file(temp_file.path()).unwrap();
+        let expected_params = get_expected_parameters();
+        assert_eq!(params, expected_params);
+    }
+
+    #[test]
+    fn test_load_from_file_not_found() {
+        let path = Path::new("non_existent_file.toml");
+        let result = Parameters::load_from_file(path);
+        assert!(matches!(result, Err(CheqError::IoError { .. })));
+    }
+
+    #[test]
+    fn test_new_and_default() {
+        let params_new = Parameters::new();
+        let params_default = Parameters::default();
+        assert_eq!(params_new.elements.len(), 0);
+        assert_eq!(params_default.elements.len(), 0);
+        assert_eq!(params_new, params_default);
+    }
+
+    #[test]
+    fn test_element_symbol_to_atomic_number() {
+        assert_eq!(element_symbol_to_atomic_number("H"), Some(1));
+        assert_eq!(element_symbol_to_atomic_number("O"), Some(8));
+        assert_eq!(element_symbol_to_atomic_number("Fe"), Some(26));
+        assert_eq!(element_symbol_to_atomic_number("Og"), Some(118));
+        assert_eq!(element_symbol_to_atomic_number("Xx"), None);
+        assert_eq!(element_symbol_to_atomic_number("h"), None);
+    }
+}
