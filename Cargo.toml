@@ -15,6 +15,9 @@ thiserror = "2.0.17"
 toml = "0.9.7"
 serde = { version = "1.0.188", features = ["derive"] }
 
+[dev-dependencies]
+tempfile = "3.6.0"
+
 [lib]
 name = "cheq"
 path = "src/lib.rs"
