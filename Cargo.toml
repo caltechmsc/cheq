@@ -12,6 +12,7 @@ description = "A pure Rust library for fast, dynamic partial charge calculation 
 
 [dependencies]
 libm = "0.2.8"
+faer = "0.23.2"
 thiserror = "2.0.17"
 toml = "0.9.7"
 serde = { version = "1.0.188", features = ["derive"] }
