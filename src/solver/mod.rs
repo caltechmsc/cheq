@@ -1,2 +1,5 @@
-pub mod options;
-pub mod solver;
+mod implementation;
+mod options;
+
+pub use implementation::QEqSolver;
+pub use options::SolverOptions;

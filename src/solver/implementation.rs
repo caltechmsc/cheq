@@ -1,8 +1,8 @@
+use super::options::SolverOptions;
 use crate::{
     error::CheqError,
     math,
     params::{ElementData, Parameters},
-    solver::options::SolverOptions,
     types::{AtomView, CalculationResult},
 };
 use faer::{Col, ColRef, Mat, prelude::*};
