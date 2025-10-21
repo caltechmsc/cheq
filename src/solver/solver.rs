@@ -167,3 +167,204 @@ impl<'p> QEqSolver<'p> {
         Ok((a, b))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::get_default_parameters;
+    use crate::types::Atom;
+    use approx::assert_relative_eq;
+    use std::panic;
+
+    fn get_test_solver() -> QEqSolver<'static> {
+        let params = get_default_parameters();
+        QEqSolver::new(params)
+    }
+
+    #[test]
+    fn test_linear_system_carbon_monoxide() {
+        let solver = get_test_solver();
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.128, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+        assert_eq!(result.iterations, 1);
+        let (q_c, q_o) = (result.charges[0], result.charges[1]);
+        assert!(q_o < 0.0);
+        assert!(q_c > 0.0);
+        assert_relative_eq!(q_c + q_o, 0.0, epsilon = 1e-9);
+        assert!(
+            q_o < -0.2 && q_o > -0.6,
+            "Oxygen charge magnitude seems off. Got: {}",
+            q_o
+        );
+    }
+
+    #[test]
+    fn test_nonlinear_system_water_molecule() {
+        let solver = get_test_solver();
+        let bond_angle_rad = 104.45f64.to_radians();
+        let bond_length = 0.9575;
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [bond_length, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [
+                    bond_length * bond_angle_rad.cos(),
+                    bond_length * bond_angle_rad.sin(),
+                    0.0,
+                ],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+        assert!(result.iterations > 1);
+        let (q_o, q_h1, q_h2) = (result.charges[0], result.charges[1], result.charges[2]);
+
+        assert!(q_o < 0.0);
+        assert!(q_h1 > 0.0);
+        assert_relative_eq!(q_h1, q_h2, epsilon = 1e-7);
+        assert_relative_eq!(q_o + q_h1 + q_h2, 0.0, epsilon = 1e-9);
+
+        assert!(
+            q_h1 > 0.15 && q_h1 < 0.4,
+            "Hydrogen charge is outside a reasonable physical range for water"
+        );
+    }
+
+    #[test]
+    fn test_symmetry_dihydrogen_molecule() {
+        let solver = get_test_solver();
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.74, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+        assert_relative_eq!(result.charges[0], 0.0, epsilon = 1e-9);
+        assert_relative_eq!(result.charges[1], 0.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_ionic_system_lithium_hydride() {
+        let solver = get_test_solver();
+        let atoms = vec![
+            Atom {
+                atomic_number: 3,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [1.595, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+        assert!(result.iterations > 1);
+        let (q_li, q_h) = (result.charges[0], result.charges[1]);
+
+        assert!(q_h < 0.0, "Hydrogen should be negative in LiH");
+        assert!(q_li > 0.0, "Lithium should be positive in LiH");
+        assert_relative_eq!(q_li + q_h, 0.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_total_charge_constraint_hydroxide_ion() {
+        let solver = get_test_solver();
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.96, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, -1.0).unwrap();
+        let (q_o, q_h) = (result.charges[0], result.charges[1]);
+
+        assert_relative_eq!(q_o + q_h, -1.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_error_handling_no_atoms() {
+        let solver = get_test_solver();
+        let atoms: Vec<Atom> = vec![];
+        let result = solver.solve(&atoms, 0.0);
+        assert!(matches!(result, Err(CheqError::NoAtoms)));
+    }
+
+    #[test]
+    fn test_error_handling_parameter_not_found() {
+        let solver = get_test_solver();
+        let atoms = vec![Atom {
+            atomic_number: 118,
+            position: [0.0, 0.0, 0.0],
+        }];
+        let result = solver.solve(&atoms, 0.0);
+        assert!(matches!(result, Err(CheqError::ParameterNotFound(118))));
+    }
+
+    #[test]
+    fn test_robustness_against_nearly_overlapping_atoms() {
+        let solver = get_test_solver();
+
+        let atoms_close = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 1e-9],
+            },
+        ];
+        let result_close = solver.solve(&atoms_close, 0.0).unwrap();
+        let q_o_close = result_close.charges[1];
+
+        let atoms_normal = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.128, 0.0, 0.0],
+            },
+        ];
+        let result_normal = solver.solve(&atoms_normal, 0.0).unwrap();
+        let q_o_normal = result_normal.charges[1];
+
+        assert!(
+            q_o_close < q_o_normal,
+            "Charge separation at R->0 ({}) should be greater than at normal bond length ({})",
+            q_o_close.abs(),
+            q_o_normal.abs()
+        );
+
+        assert!(q_o_close < -0.3 && q_o_close > -0.35);
+    }
+}
