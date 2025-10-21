@@ -1,3 +1,10 @@
+//! This module provides atomic parameters and utilities for loading them from TOML files.
+//!
+//! It defines the `ElementData` struct for storing per-element parameters used in charge equilibration,
+//! and the `Parameters` struct for managing collections of these parameters. The module includes
+//! deserialization logic to support flexible key formats (atomic numbers or element symbols) in TOML
+//! configuration files, enabling user-friendly parameter specification.
+
 use super::error::CheqError;
 use serde::Deserialize;
 use serde::de::{self, Deserializer, MapAccess, Visitor};
@@ -5,24 +12,80 @@ use std::collections::HashMap;
 use std::fmt;
 use std::path::Path;
 
+/// Atomic parameters for an element used in charge equilibration calculations.
+///
+/// This struct contains the fundamental atomic properties required by the QEq method: electronegativity
+/// (χ), hardness (J), covalent radius, and principal quantum number. These parameters are derived from
+/// quantum mechanical calculations and experimental data.
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct ElementData {
+    /// The electronegativity of the element in electron volts.
+    ///
+    /// This parameter represents the tendency of an atom to attract electrons and is a key component
+    /// in determining partial atomic charges during equilibration.
     #[serde(rename = "chi")]
     pub electronegativity: f64,
+    /// The atomic hardness of the element in electron volts.
+    ///
+    /// Hardness quantifies the resistance of an atom to charge transfer and influences the charge
+    /// distribution in the molecular system.
     #[serde(rename = "j")]
     pub hardness: f64,
+    /// The covalent radius of the element in angstroms.
+    ///
+    /// This radius is used to estimate interatomic distances and screen Coulomb interactions in the
+    /// charge equilibration model.
     pub radius: f64,
+    /// The principal quantum number of the valence shell.
+    ///
+    /// This quantum number helps characterize the electronic structure and is used in some parameter
+    /// derivations within the QEq formalism.
     #[serde(rename = "n")]
     pub principal_quantum_number: u8,
 }
 
+/// A collection of atomic parameters for multiple elements.
+///
+/// This struct serves as a container for element-specific data required by the charge equilibration
+/// solver. Parameters are indexed by atomic number for efficient lookup during calculations.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 pub struct Parameters {
+    /// A mapping from atomic number to the corresponding element parameters.
+    ///
+    /// The keys are atomic numbers (1 for hydrogen, 6 for carbon, etc.), and the values contain all
+    /// the parameters needed for charge equilibration calculations.
     #[serde(deserialize_with = "deserialize_element_map")]
     pub elements: HashMap<u8, ElementData>,
 }
 
 impl Parameters {
+    /// Loads atomic parameters from a TOML file.
+    ///
+    /// This method reads the contents of a TOML file and parses it into a `Parameters` instance.
+    /// The file should contain an `[elements]` table with element data keyed by atomic number or
+    /// element symbol.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - The path to the TOML file containing the parameter data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Parameters` instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `CheqError::IoError` if the file cannot be read, or a `CheqError::DeserializationError`
+    /// if the TOML content is invalid or contains unrecognized element keys.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use cheq::Parameters;
+    /// use std::path::Path;
+    ///
+    /// let params = Parameters::load_from_file(Path::new("parameters.toml")).unwrap();
+    /// ```
     pub fn load_from_file(path: &Path) -> Result<Self, CheqError> {
         let content = std::fs::read_to_string(path).map_err(|io_error| CheqError::IoError {
             path: path.to_path_buf(),
@@ -32,10 +95,60 @@ impl Parameters {
         Self::load_from_str(&content)
     }
 
+    /// Parses atomic parameters from a TOML string.
+    ///
+    /// This method deserializes TOML-formatted parameter data into a `Parameters` instance.
+    /// The string should contain an `[elements]` table with element data keyed by atomic number or
+    /// element symbol.
+    ///
+    /// # Arguments
+    ///
+    /// * `toml_str` - A string slice containing valid TOML parameter data.
+    ///
+    /// # Returns
+    ///
+    /// Returns a `Parameters` instance on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns a `CheqError::DeserializationError` if the TOML content is invalid or contains
+    /// unrecognized element keys.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::Parameters;
+    ///
+    /// let toml_data = r#"
+    /// [elements]
+    /// "1" = { chi = 2.20, j = 13.60, radius = 0.37, n = 1 }
+    /// "6" = { chi = 2.55, j = 10.39, radius = 0.77, n = 2 }
+    /// "#;
+    ///
+    /// let params = Parameters::load_from_str(toml_data).unwrap();
+    /// assert_eq!(params.elements.len(), 2);
+    /// ```
     pub fn load_from_str(toml_str: &str) -> Result<Self, CheqError> {
         toml::from_str(toml_str).map_err(CheqError::from)
     }
 
+    /// Creates a new empty `Parameters` instance.
+    ///
+    /// This constructor initializes a `Parameters` struct with an empty elements map. Parameters
+    /// can be added programmatically or loaded from a file/string.
+    ///
+    /// # Returns
+    ///
+    /// Returns a new `Parameters` instance with no elements.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::Parameters;
+    ///
+    /// let params = Parameters::new();
+    /// assert_eq!(params.elements.len(), 0);
+    /// ```
     pub fn new() -> Self {
         Parameters {
             elements: HashMap::new(),
@@ -49,6 +162,23 @@ impl Default for Parameters {
     }
 }
 
+/// Deserializes a map of element data with flexible key types.
+///
+/// This function enables TOML deserialization where element keys can be either atomic numbers
+/// (as strings) or element symbols. It converts element symbols to their corresponding atomic
+/// numbers for internal storage.
+///
+/// # Arguments
+///
+/// * `deserializer` - The Serde deserializer to use for parsing the map.
+///
+/// # Returns
+///
+/// Returns a `HashMap<u8, ElementData>` on successful deserialization.
+///
+/// # Errors
+///
+/// Returns a deserialization error if the map contains invalid keys or malformed data.
 fn deserialize_element_map<'de, D>(deserializer: D) -> Result<HashMap<u8, ElementData>, D::Error>
 where
     D: Deserializer<'de>,
@@ -81,6 +211,18 @@ where
     deserializer.deserialize_map(ElementMapVisitor)
 }
 
+/// Converts an element symbol to its atomic number.
+///
+/// This function maps standard element symbols (case-sensitive) to their corresponding atomic numbers.
+/// It supports all elements up to Oganesson (118).
+///
+/// # Arguments
+///
+/// * `symbol` - The element symbol to convert (e.g., "H", "C", "Fe").
+///
+/// # Returns
+///
+/// Returns `Some(atomic_number)` if the symbol is recognized, or `None` if invalid.
 fn element_symbol_to_atomic_number(symbol: &str) -> Option<u8> {
     match symbol {
         "H" => Some(1),
