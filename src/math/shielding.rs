@@ -18,3 +18,11 @@ pub fn gaussian_coulomb_integral(
 
     screened_potential(distance_bohr, alpha1, alpha2)
 }
+
+#[inline]
+fn slater_exponent(n: u8, r_cov_bohr: f64, lambda: f64) -> f64 {
+    if r_cov_bohr < 1e-8 {
+        return 0.0;
+    }
+    lambda * (2.0 * n as f64 + 1.0) / (2.0 * r_cov_bohr)
+}
