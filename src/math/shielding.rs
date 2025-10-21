@@ -35,3 +35,15 @@ fn equivalent_gaussian_exponent(n: u8, zeta: f64) -> f64 {
     let c_n = get_c_n_fit_coeff(n);
     c_n * zeta.powi(2) / (n as f64)
 }
+
+#[inline]
+fn get_c_n_fit_coeff(n: u8) -> f64 {
+    match n {
+        1 => 0.270917,
+        2 => 0.098800,
+        3 => 0.055600,
+        4 => 0.039100,
+        5 => 0.029600,
+        _ => 0.27 * (n as f64).powf(-1.35),
+    }
+}
