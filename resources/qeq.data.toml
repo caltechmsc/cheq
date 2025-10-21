@@ -1,11 +1,11 @@
 # =======================================================================================
-# Atomic Parameters for the `cheq` Library's Slater-Type Orbital (STO) Model
+# Atomic Parameters for the `cheq` Charge Equilibration (QEq) Library
 # =======================================================================================
 #
-# This file provides a set of atomic parameters for the QEq-STO model,
-# covering elements with atomic numbers from 1 to 103. The data is aggregated from
-# multiple authoritative sources following a strict priority scheme to balance
-# fidelity to the original QEq paper with broad element coverage.
+# This file provides the core atomic parameters required by the Charge Equilibration (QEq)
+# method, as described in the seminal paper by Rappe & Goddard (J. Phys. Chem. 1991, 95, 3358-3363).
+# These parameters are general to the QEq framework and are used to construct the
+# chemical potential of each atom.
 #
 # ---------------------------------------------------------------------------------------
 # Units Convention:

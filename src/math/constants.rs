@@ -1,0 +1,5 @@
+pub const BOHR_TO_ANGSTROM: f64 = 0.529_177_210_903;
+
+pub const HARTREE_TO_EV: f64 = 27.211_386_245_988;
+
+pub const DISTANCE_THRESHOLD_BOHR: f64 = 1e-12;
