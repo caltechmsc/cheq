@@ -1,10 +1,17 @@
-pub mod error;
-pub mod math;
-pub mod params;
-pub mod solver;
-pub mod types;
+mod error;
+mod math;
+mod params;
+mod solver;
+mod types;
 
-use crate::params::Parameters;
+pub use self::error::CheqError;
+
+pub use self::types::{Atom, AtomView, CalculationResult};
+
+pub use self::solver::{QEqSolver, SolverOptions};
+
+pub use self::params::{ElementData, Parameters};
+
 use std::sync::OnceLock;
 
 static DEFAULT_PARAMETERS: OnceLock<Parameters> = OnceLock::new();
