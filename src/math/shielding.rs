@@ -47,3 +47,14 @@ fn get_c_n_fit_coeff(n: u8) -> f64 {
         _ => 0.27 * (n as f64).powf(-1.35),
     }
 }
+
+#[inline]
+fn screened_potential(distance_bohr: f64, alpha1: f64, alpha2: f64) -> f64 {
+    let beta = (2.0 * alpha1 * alpha2 / (alpha1 + alpha2)).sqrt();
+
+    if distance_bohr < DISTANCE_THRESHOLD_BOHR {
+        2.0 * beta / std::f64::consts::PI.sqrt()
+    } else {
+        erf(beta * distance_bohr) / distance_bohr
+    }
+}
