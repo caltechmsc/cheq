@@ -26,3 +26,12 @@ fn slater_exponent(n: u8, r_cov_bohr: f64, lambda: f64) -> f64 {
     }
     lambda * (2.0 * n as f64 + 1.0) / (2.0 * r_cov_bohr)
 }
+
+#[inline]
+fn equivalent_gaussian_exponent(n: u8, zeta: f64) -> f64 {
+    if n == 0 {
+        return 0.0;
+    }
+    let c_n = get_c_n_fit_coeff(n);
+    c_n * zeta.powi(2) / (n as f64)
+}
