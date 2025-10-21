@@ -310,6 +310,49 @@ mod tests {
     }
 
     #[test]
+    fn test_chemical_trend_nacl_vs_nabr() {
+        let solver = get_test_solver();
+
+        let nacl_bond_length = 2.36;
+        let nacl_atoms = vec![
+            Atom {
+                atomic_number: 11,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 17,
+                position: [nacl_bond_length, 0.0, 0.0],
+            },
+        ];
+
+        let nabr_bond_length = 2.50;
+        let nabr_atoms = vec![
+            Atom {
+                atomic_number: 11,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 35,
+                position: [nabr_bond_length, 0.0, 0.0],
+            },
+        ];
+
+        let nacl_result = solver.solve(&nacl_atoms, 0.0).unwrap();
+        let nabr_result = solver.solve(&nabr_atoms, 0.0).unwrap();
+
+        let charge_na_in_nacl = nacl_result.charges[0];
+        let charge_na_in_nabr = nabr_result.charges[0];
+
+        assert!(
+            charge_na_in_nacl > charge_na_in_nabr,
+            "Chemical trend is incorrect: Charge on Na in NaCl should be greater than in NaBr."
+        );
+
+        assert!(charge_na_in_nacl > 0.0);
+        assert!(charge_na_in_nabr > 0.0);
+    }
+
+    #[test]
     fn test_error_handling_no_atoms() {
         let solver = get_test_solver();
         let atoms: Vec<Atom> = vec![];
@@ -326,23 +369,6 @@ mod tests {
         }];
         let result = solver.solve(&atoms, 0.0);
         assert!(matches!(result, Err(CheqError::ParameterNotFound(118))));
-    }
-
-    #[test]
-    fn test_with_options() {
-        let params = get_default_parameters();
-        let options = SolverOptions {
-            max_iterations: 100,
-            tolerance: 1e-10,
-            lambda_scale: 1.0,
-        };
-        let solver = QEqSolver::new(params).with_options(options);
-        let atoms = vec![Atom {
-            atomic_number: 6,
-            position: [0.0, 0.0, 0.0],
-        }];
-        let result = solver.solve(&atoms, 0.0).unwrap();
-        assert_eq!(result.charges.len(), 1);
     }
 
     #[test]
@@ -392,5 +418,22 @@ mod tests {
             Ok(_) => (),
             _ => panic!("Unexpected error"),
         }
+    }
+
+    #[test]
+    fn test_with_options() {
+        let params = get_default_parameters();
+        let options = SolverOptions {
+            max_iterations: 100,
+            tolerance: 1e-10,
+            lambda_scale: 1.0,
+        };
+        let solver = QEqSolver::new(params).with_options(options);
+        let atoms = vec![Atom {
+            atomic_number: 6,
+            position: [0.0, 0.0, 0.0],
+        }];
+        let result = solver.solve(&atoms, 0.0).unwrap();
+        assert_eq!(result.charges.len(), 1);
     }
 }
