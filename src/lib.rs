@@ -1,6 +1,7 @@
 pub mod error;
 pub mod math;
 pub mod params;
+pub mod solver;
 pub mod types;
 
 use crate::params::Parameters;
