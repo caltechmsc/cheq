@@ -44,6 +44,7 @@ impl<'p> QEqSolver<'p> {
             .any(|data| data.principal_quantum_number == 1);
 
         let mut charges = Col::zeros(n_atoms);
+        let mut max_charge_delta = 0.0;
 
         for iteration in 1..=self.options.max_iterations {
             let (a, b) = self.build_system(atoms, &element_data, total_charge, charges.as_ref())?;
@@ -63,7 +64,7 @@ impl<'p> QEqSolver<'p> {
             let new_charges = solution.as_ref().subrows(0, n_atoms);
 
             let diff_abs = Col::from_fn(n_atoms, |i| (new_charges[i] - charges[i]).abs());
-            let max_charge_delta = diff_abs.max().unwrap();
+            max_charge_delta = diff_abs.max().unwrap();
 
             charges.as_mut().copy_from(&new_charges);
 
@@ -79,7 +80,7 @@ impl<'p> QEqSolver<'p> {
 
         Err(CheqError::NotConverged {
             max_iterations: self.options.max_iterations,
-            delta: Col::from_fn(n_atoms, |i| charges[i].abs()).max().unwrap(),
+            delta: max_charge_delta,
         })
     }
 
