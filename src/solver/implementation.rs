@@ -1,3 +1,12 @@
+//! This module implements the core `QEqSolver` for performing charge equilibration calculations.
+//!
+//! The `QEqSolver` encapsulates the Self-Consistent Field (SCF) iterative procedure that solves
+//! the QEq equations to determine partial atomic charges. It constructs a linear system based on
+//! atomic parameters and geometry, iteratively refining charges until convergence. The solver
+//! integrates with the broader `cheq` architecture by using the `AtomView` trait for atom data
+//! and `Parameters` for element-specific values, enabling decoupled and flexible molecular
+//! simulations.
+
 use super::options::SolverOptions;
 use crate::{
     error::CheqError,
@@ -8,14 +17,42 @@ use crate::{
 use faer::{Col, ColRef, Mat, prelude::*};
 use std::panic::{self, AssertUnwindSafe};
 
+/// Charge dependence factor for hydrogen hardness, derived from empirical fitting.
+/// This constant adjusts the hardness of hydrogen atoms based on their partial charge,
+/// introducing non-linearity into the QEq equations.
 const H_CHARGE_DEPENDENCE_FACTOR: f64 = 0.93475415965;
 
+/// The main solver for charge equilibration calculations.
+///
+/// This struct holds references to atomic parameters and solver options, providing methods
+/// to perform QEq calculations on molecular systems. It implements an iterative SCF procedure
+/// to solve the non-linear charge equilibration equations.
 pub struct QEqSolver<'p> {
+    /// Reference to the atomic parameters used in calculations.
     parameters: &'p Parameters,
+    /// Configuration options for the solver, such as convergence tolerance and iteration limits.
     options: SolverOptions,
 }
 
 impl<'p> QEqSolver<'p> {
+    /// Creates a new `QEqSolver` with default options.
+    ///
+    /// # Arguments
+    ///
+    /// * `parameters` - A reference to the `Parameters` containing element data.
+    ///
+    /// # Returns
+    ///
+    /// A new `QEqSolver` instance with default `SolverOptions`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::{get_default_parameters, QEqSolver};
+    ///
+    /// let params = get_default_parameters();
+    /// let solver = QEqSolver::new(&params);
+    /// ```
     pub fn new(parameters: &'p Parameters) -> Self {
         Self {
             parameters,
@@ -23,11 +60,72 @@ impl<'p> QEqSolver<'p> {
         }
     }
 
+    /// Configures the solver with custom options.
+    ///
+    /// This method allows setting non-default solver parameters such as tolerance and maximum
+    /// iterations. It consumes the solver and returns a new instance with the updated options.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - The `SolverOptions` to apply to the solver.
+    ///
+    /// # Returns
+    ///
+    /// A new `QEqSolver` instance with the specified options.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::{get_default_parameters, QEqSolver, SolverOptions};
+    ///
+    /// let params = get_default_parameters();
+    /// let options = SolverOptions { tolerance: 1e-8, max_iterations: 50, lambda_scale: 1.0 };
+    /// let solver = QEqSolver::new(&params).with_options(options);
+    /// ```
     pub fn with_options(mut self, options: SolverOptions) -> Self {
         self.options = options;
         self
     }
 
+    /// Solves the charge equilibration equations for a given molecular system.
+    ///
+    /// This method performs the SCF iterative procedure to compute partial atomic charges that
+    /// equalize the chemical potential across all atoms, subject to the total charge constraint.
+    /// The process involves building and solving a linear system in each iteration, with special
+    /// handling for hydrogen atoms whose hardness depends on their charge.
+    ///
+    /// # Arguments
+    ///
+    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
+    /// * `total_charge` - The desired total charge of the system.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `CalculationResult` with the computed charges and metadata on success,
+    /// or a `CheqError` on failure.
+    ///
+    /// # Errors
+    ///
+    /// This function can return the following errors:
+    /// * `CheqError::NoAtoms` if the atom slice is empty.
+    /// * `CheqError::ParameterNotFound` if parameters for an atom's element are missing.
+    /// * `CheqError::LinalgError` if the linear system cannot be solved due to numerical issues.
+    /// * `CheqError::NotConverged` if the SCF procedure does not converge within the maximum iterations.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::{get_default_parameters, QEqSolver, Atom};
+    ///
+    /// let params = get_default_parameters();
+    /// let solver = QEqSolver::new(&params);
+    /// let atoms = vec![
+    ///     Atom { atomic_number: 6, position: [0.0, 0.0, 0.0] },
+    ///     Atom { atomic_number: 8, position: [1.128, 0.0, 0.0] },
+    /// ];
+    /// let result = solver.solve(&atoms, 0.0).unwrap();
+    /// assert_eq!(result.charges.len(), 2);
+    /// ```
     pub fn solve<A: AtomView>(
         &self,
         atoms: &[A],
@@ -84,6 +182,22 @@ impl<'p> QEqSolver<'p> {
         })
     }
 
+    /// Retrieves element data for each atom from the parameters.
+    ///
+    /// This helper method maps each atom to its corresponding `ElementData` based on atomic number,
+    /// ensuring all required parameters are available before proceeding with calculations.
+    ///
+    /// # Arguments
+    ///
+    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
+    ///
+    /// # Returns
+    ///
+    /// A vector of references to `ElementData` for each atom.
+    ///
+    /// # Errors
+    ///
+    /// Returns `CheqError::ParameterNotFound` if data for any atomic number is missing.
     fn fetch_element_data<A: AtomView>(
         &self,
         atoms: &[A],
@@ -100,6 +214,27 @@ impl<'p> QEqSolver<'p> {
             .collect()
     }
 
+    /// Builds the linear system matrix and vector for the QEq equations.
+    ///
+    /// This method constructs the coefficient matrix `A` and right-hand side vector `b` for the
+    /// linear system `A x = b`, where `x` includes atomic charges and the Lagrange multiplier
+    /// for the total charge constraint. Diagonal elements represent atomic hardness, off-diagonal
+    /// elements are screened Coulomb integrals, and the last row enforces charge conservation.
+    ///
+    /// # Arguments
+    ///
+    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
+    /// * `element_data` - Pre-fetched element data for each atom.
+    /// * `total_charge` - The desired total charge of the system.
+    /// * `current_charges` - Current estimates of atomic charges for hydrogen hardness adjustment.
+    ///
+    /// # Returns
+    ///
+    /// A tuple `(A, b)` representing the matrix and vector of the linear system.
+    ///
+    /// # Errors
+    ///
+    /// This function does not directly return errors but propagates any from underlying calculations.
     fn build_system<A: AtomView>(
         &self,
         atoms: &[A],
@@ -118,6 +253,7 @@ impl<'p> QEqSolver<'p> {
         for i in 0..n_atoms {
             let data_i = element_data[i];
 
+            // Adjust hardness for hydrogen based on current charge to model non-linearity
             let j_ii = if data_i.principal_quantum_number == 1 {
                 data_i.hardness * (1.0 + current_charges[i] * H_CHARGE_DEPENDENCE_FACTOR)
             } else {
@@ -137,6 +273,7 @@ impl<'p> QEqSolver<'p> {
                     .sum();
                 let distance_angstrom = dist_sq.sqrt();
 
+                // Convert to atomic units for shielding calculations
                 let distance_bohr = distance_angstrom / math::constants::BOHR_TO_ANGSTROM;
                 let radius_i_bohr = data_i.radius / math::constants::BOHR_TO_ANGSTROM;
                 let radius_j_bohr = data_j.radius / math::constants::BOHR_TO_ANGSTROM;
@@ -150,6 +287,7 @@ impl<'p> QEqSolver<'p> {
                     self.options.lambda_scale,
                 );
 
+                // Convert back to eV for consistency with electronegativity units
                 let j_ij_ev = j_ij_hartree * math::constants::HARTREE_TO_EV;
                 a_mut[(i, j)] = j_ij_ev;
                 a_mut[(j, i)] = j_ij_ev;
@@ -158,6 +296,7 @@ impl<'p> QEqSolver<'p> {
             b_mut[i] = -data_i.electronegativity;
         }
 
+        // Apply total charge constraint to the last row of the matrix
         a.col_mut(matrix_size - 1)
             .subrows_mut(0, n_atoms)
             .fill(-1.0);
