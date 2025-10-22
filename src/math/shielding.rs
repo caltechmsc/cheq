@@ -1,6 +1,34 @@
+//! This module implements screened Coulomb potential calculations for charge equilibration.
+//!
+//! It provides functions to compute the effective electrostatic interaction between atoms,
+//! accounting for orbital overlap and screening effects. The implementation uses Gaussian
+//! approximations of Slater-type orbitals to enable efficient analytical integration of
+//! Coulomb potentials, which is crucial for the linear system construction in the QEq solver.
+
 use super::constants::DISTANCE_THRESHOLD_BOHR;
 use libm::erf;
 
+/// Computes the screened Coulomb integral between two atoms using Gaussian orbital approximations.
+///
+/// This function calculates the effective electrostatic hardness parameter J_AB between atoms A and B,
+/// incorporating screening effects due to orbital overlap. It transforms Slater-type orbitals into
+/// equivalent Gaussians and evaluates the resulting analytical integral.
+///
+/// The screening parameter λ controls the degree of orbital contraction, with smaller values
+/// corresponding to more diffuse, strongly screening orbitals.
+///
+/// # Arguments
+///
+/// * `distance_bohr` - Interatomic distance in Bohr units.
+/// * `n1` - Principal quantum number of atom 1.
+/// * `r_cov1_bohr` - Covalent radius of atom 1 in Bohr units.
+/// * `n2` - Principal quantum number of atom 2.
+/// * `r_cov2_bohr` - Covalent radius of atom 2 in Bohr units.
+/// * `lambda` - Screening parameter (dimensionless, typically 0.4-0.6).
+///
+/// # Returns
+///
+/// Returns the screened Coulomb integral in Hartree units.
 #[inline]
 pub fn gaussian_coulomb_integral(
     distance_bohr: f64,
@@ -19,23 +47,64 @@ pub fn gaussian_coulomb_integral(
     screened_potential(distance_bohr, alpha1, alpha2)
 }
 
+/// Calculates the Slater orbital exponent from atomic parameters.
+///
+/// The exponent ζ is derived from the principal quantum number and covalent radius,
+/// scaled by the screening parameter λ. This follows the relationship ζ ∝ (2n+1)/(2R_cov).
+///
+/// # Arguments
+///
+/// * `n` - Principal quantum number.
+/// * `r_cov_bohr` - Covalent radius in Bohr units.
+/// * `lambda` - Screening parameter.
+///
+/// # Returns
+///
+/// Returns the Slater exponent in inverse Bohr units.
 #[inline]
 fn slater_exponent(n: u8, r_cov_bohr: f64, lambda: f64) -> f64 {
     if r_cov_bohr < 1e-8 {
         return 0.0;
     }
+    // Slater exponent scales inversely with orbital size
     lambda * (2.0 * n as f64 + 1.0) / (2.0 * r_cov_bohr)
 }
 
+/// Converts a Slater orbital to an equivalent Gaussian exponent.
+///
+/// This function maps Slater-type orbitals (1s, 2s, etc.) to Gaussian functions with
+/// equivalent radial extent, using fitted coefficients that preserve the orbital shape.
+///
+/// # Arguments
+///
+/// * `n` - Principal quantum number.
+/// * `zeta` - Slater exponent.
+///
+/// # Returns
+///
+/// Returns the equivalent Gaussian exponent α.
 #[inline]
 fn equivalent_gaussian_exponent(n: u8, zeta: f64) -> f64 {
     if n == 0 {
         return 0.0;
     }
     let c_n = get_c_n_fit_coeff(n);
+    // Gaussian exponent derived from Slater-Gaussian equivalence
     c_n * zeta.powi(2) / (n as f64)
 }
 
+/// Retrieves the fitted coefficient for Slater-to-Gaussian conversion.
+///
+/// These coefficients are empirically determined to minimize the difference between
+/// Slater and Gaussian orbital shapes for different principal quantum numbers.
+///
+/// # Arguments
+///
+/// * `n` - Principal quantum number.
+///
+/// # Returns
+///
+/// Returns the fitting coefficient c_n.
 #[inline]
 fn get_c_n_fit_coeff(n: u8) -> f64 {
     match n {
@@ -44,15 +113,31 @@ fn get_c_n_fit_coeff(n: u8) -> f64 {
         3 => 0.055600,
         4 => 0.039100,
         5 => 0.029600,
+        // Extrapolation formula for higher quantum numbers
         _ => 0.27 * (n as f64).powf(-1.35),
     }
 }
 
+/// Evaluates the screened Coulomb potential between two Gaussian orbitals.
+///
+/// This function computes the analytical integral ∫∫ φ₁(r) φ₂(r') / |r-r'| dr dr'
+/// for Gaussian basis functions, using the error function for the distance-dependent term.
+///
+/// # Arguments
+///
+/// * `distance_bohr` - Interatomic distance in Bohr units.
+/// * `alpha1` - Gaussian exponent for atom 1.
+/// * `alpha2` - Gaussian exponent for atom 2.
+///
+/// # Returns
+///
+/// Returns the potential energy in Hartree units.
 #[inline]
 fn screened_potential(distance_bohr: f64, alpha1: f64, alpha2: f64) -> f64 {
     let beta = (2.0 * alpha1 * alpha2 / (alpha1 + alpha2)).sqrt();
 
     if distance_bohr < DISTANCE_THRESHOLD_BOHR {
+        // Limit at zero distance: erf(∞)/R → 1/R, but βR → 0, so use asymptotic form
         2.0 * beta / std::f64::consts::PI.sqrt()
     } else {
         erf(beta * distance_bohr) / distance_bohr

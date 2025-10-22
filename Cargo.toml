@@ -9,6 +9,15 @@ license = "MIT"
 repository = "https://github.com/caltechmsc/cheq"
 edition = "2024"
 description = "A pure Rust library for fast, dynamic partial charge calculation via the QEq method."
+keywords = [
+    "chemistry",
+    "qeq",
+    "partial-charges",
+    "force-fields",
+    "computational-chemistry",
+]
+categories = ["science", "simulation"]
+readme = "README.md"
 
 [dependencies]
 libm = "0.2.8"
