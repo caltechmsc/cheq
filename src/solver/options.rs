@@ -25,8 +25,8 @@ pub struct SolverOptions {
     /// The screening parameter scale factor.
     ///
     /// This multiplier adjusts the orbital screening strength in Coulomb integral calculations.
-    /// Values typically range from 0.4 to 0.6, with smaller values corresponding to stronger
-    /// screening and more compact effective potentials.
+    /// It corresponds to the `λ` parameter in the Rappe & Goddard paper.
+    /// The original paper suggests a value of ~0.4913, often rounded to 0.5.
     pub lambda_scale: f64,
 }
 
