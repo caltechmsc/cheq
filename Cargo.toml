@@ -14,7 +14,7 @@ keywords = [
     "qeq",
     "partial-charges",
     "force-fields",
-    "computational-chemistry",
+    "molecular-dynamics",
 ]
 categories = ["science", "simulation"]
 readme = "README.md"
