@@ -36,13 +36,13 @@
 //! let angle = 104.45f64.to_radians();
 //!
 //! let atoms = vec![
-//!     Atom { atomic_number: 8, position: [0.0, 0.0, 0.0] },                       // Oxygen
-//!     Atom { atomic_number: 1, position: [bond_length, 0.0, 0.0] },              // Hydrogen 1
+//!     Atom { atomic_number: 8, position: [0.0, 0.0, 0.0] },         // Oxygen
+//!     Atom { atomic_number: 1, position: [bond_length, 0.0, 0.0] }, // Hydrogen 1
 //!     Atom { atomic_number: 1, position: [
 //!         bond_length * angle.cos(),
 //!         bond_length * angle.sin(),
 //!         0.0,
-//!     ]},                                                                        // Hydrogen 2
+//!     ]},                                                           // Hydrogen 2
 //! ];
 //!
 //! // 3. Solve for partial charges (total charge Q_tot = 0.0).
