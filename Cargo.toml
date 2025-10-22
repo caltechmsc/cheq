@@ -11,15 +11,10 @@ edition = "2024"
 description = "A pure Rust library for fast, dynamic partial charge calculation via the QEq method."
 keywords = [
     "chemistry",
-    "molecular-dynamics",
     "qeq",
     "partial-charges",
     "force-fields",
     "computational-chemistry",
-    "quantum-chemistry",
-    "quantum-mechanics",
-    "uff",
-    "reaxff",
 ]
 categories = ["science", "simulation"]
 readme = "README.md"
