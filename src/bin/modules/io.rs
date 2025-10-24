@@ -329,3 +329,38 @@ fn write_pretty_table(
 
     Ok(())
 }
+
+fn write_xyz_charged(
+    writer: &mut dyn Write,
+    atoms: &[Atom],
+    result: &cheq::CalculationResult,
+    comment: &str,
+    precision: usize,
+) -> Result<(), CliError> {
+    writeln!(writer, "{}", atoms.len())?;
+    writeln!(
+        writer,
+        "{} | QEq charges | iterations: {} | potential: {:.*}",
+        comment.trim(),
+        result.iterations,
+        precision,
+        result.equilibrated_potential
+    )?;
+    for (atom, &charge) in atoms.iter().zip(result.charges.iter()) {
+        let symbol = atomic_number_to_symbol(atom.atomic_number).unwrap_or("??");
+        writeln!(
+            writer,
+            "{} {:.*} {:.*} {:.*} {:.*}",
+            symbol,
+            precision,
+            atom.position[0],
+            precision,
+            atom.position[1],
+            precision,
+            atom.position[2],
+            precision,
+            charge
+        )?;
+    }
+    Ok(())
+}
