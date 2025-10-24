@@ -212,3 +212,16 @@ fn parse_element(s: &str) -> Option<u8> {
         _ => None,
     }
 }
+
+pub fn get_writer(output_path: &Option<PathBuf>) -> Result<Box<dyn Write>, CliError> {
+    match output_path {
+        Some(path) => {
+            let file = std::fs::File::create(path).map_err(|e| CliError::Io {
+                path: path.clone(),
+                source: e,
+            })?;
+            Ok(Box::new(BufWriter::new(file)))
+        }
+        None => Ok(Box::new(io::stdout())),
+    }
+}
