@@ -291,7 +291,7 @@ fn write_pretty_table(
     let total_charge = result.charges.iter().sum::<f64>();
 
     let mut title_table = Table::new();
-    title_table.set_format(box_format.clone());
+    title_table.set_format(box_format);
     title_table.add_row(row![bc->"Cheq Charge Equilibration Results"]);
     title_table.print(writer)?;
     writeln!(writer)?;
@@ -398,36 +398,36 @@ fn write_json(
     result: &cheq::CalculationResult,
     precision: usize,
 ) -> Result<(), CliError> {
-    write!(writer, "{{\n")?;
-    write!(writer, "  \"atoms\": [\n")?;
+    writeln!(writer, "{{")?;
+    writeln!(writer, "  \"atoms\": [")?;
     for (i, (atom, &charge)) in atoms.iter().zip(result.charges.iter()).enumerate() {
         let symbol = atomic_number_to_symbol(atom.atomic_number).unwrap_or("??");
         let comma = if i < atoms.len() - 1 { "," } else { "" };
-        write!(writer, "    {{\n")?;
-        write!(writer, "      \"index\": {},\n", i)?;
-        write!(writer, "      \"element\": \"{}\",\n", symbol)?;
-        write!(
+        writeln!(writer, "    {{")?;
+        writeln!(writer, "      \"index\": {},", i)?;
+        writeln!(writer, "      \"element\": \"{}\",", symbol)?;
+        writeln!(
             writer,
-            "      \"position\": [{:.*}, {:.*}, {:.*}],\n",
+            "      \"position\": [{:.*}, {:.*}, {:.*}],",
             precision, atom.position[0], precision, atom.position[1], precision, atom.position[2]
         )?;
-        write!(writer, "      \"charge\": {:.*}\n", precision, charge)?;
-        write!(writer, "    }}{}\n", comma)?;
+        writeln!(writer, "      \"charge\": {:.*}", precision, charge)?;
+        writeln!(writer, "    }}{}", comma)?;
     }
-    write!(writer, "  ],\n")?;
-    write!(
+    writeln!(writer, "  ],")?;
+    writeln!(
         writer,
-        "  \"total_charge\": {:.*},\n",
+        "  \"total_charge\": {:.*},",
         precision,
         result.charges.iter().sum::<f64>()
     )?;
-    write!(writer, "  \"iterations\": {},\n", result.iterations)?;
-    write!(
+    writeln!(writer, "  \"iterations\": {},", result.iterations)?;
+    writeln!(
         writer,
-        "  \"equilibrated_potential\": {:.*}\n",
+        "  \"equilibrated_potential\": {:.*}",
         precision, result.equilibrated_potential
     )?;
-    write!(writer, "}}\n")?;
+    writeln!(writer, "}}")?;
     Ok(())
 }
 
