@@ -391,3 +391,42 @@ fn write_csv(
     }
     Ok(())
 }
+
+fn write_json(
+    writer: &mut dyn Write,
+    atoms: &[Atom],
+    result: &cheq::CalculationResult,
+    precision: usize,
+) -> Result<(), CliError> {
+    write!(writer, "{{\n")?;
+    write!(writer, "  \"atoms\": [\n")?;
+    for (i, (atom, &charge)) in atoms.iter().zip(result.charges.iter()).enumerate() {
+        let symbol = atomic_number_to_symbol(atom.atomic_number).unwrap_or("??");
+        let comma = if i < atoms.len() - 1 { "," } else { "" };
+        write!(writer, "    {{\n")?;
+        write!(writer, "      \"index\": {},\n", i)?;
+        write!(writer, "      \"element\": \"{}\",\n", symbol)?;
+        write!(
+            writer,
+            "      \"position\": [{:.*}, {:.*}, {:.*}],\n",
+            precision, atom.position[0], precision, atom.position[1], precision, atom.position[2]
+        )?;
+        write!(writer, "      \"charge\": {:.*}\n", precision, charge)?;
+        write!(writer, "    }}{}\n", comma)?;
+    }
+    write!(writer, "  ],\n")?;
+    write!(
+        writer,
+        "  \"total_charge\": {:.*},\n",
+        precision,
+        result.charges.iter().sum::<f64>()
+    )?;
+    write!(writer, "  \"iterations\": {},\n", result.iterations)?;
+    write!(
+        writer,
+        "  \"equilibrated_potential\": {:.*}\n",
+        precision, result.equilibrated_potential
+    )?;
+    write!(writer, "}}\n")?;
+    Ok(())
+}
