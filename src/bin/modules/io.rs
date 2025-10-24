@@ -554,3 +554,220 @@ fn atomic_number_to_symbol(atomic_number: u8) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cheq::CalculationResult;
+    use std::cell::RefCell;
+    use std::fs;
+    use std::io::{self, Write};
+    use std::path::PathBuf;
+    use std::rc::Rc;
+    use tempfile::NamedTempFile;
+
+    fn sample_atoms() -> Vec<Atom> {
+        vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.96],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.75, -0.24],
+            },
+        ]
+    }
+
+    fn sample_result() -> CalculationResult {
+        CalculationResult {
+            charges: vec![-0.8, 0.4, 0.4],
+            equilibrated_potential: -10.25,
+            iterations: 4,
+        }
+    }
+
+    #[derive(Clone)]
+    struct SharedWriter {
+        buffer: Rc<RefCell<Vec<u8>>>,
+    }
+
+    impl SharedWriter {
+        fn new() -> (Self, Rc<RefCell<Vec<u8>>>) {
+            let buffer = Rc::new(RefCell::new(Vec::new()));
+            (
+                Self {
+                    buffer: buffer.clone(),
+                },
+                buffer,
+            )
+        }
+    }
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.buffer.borrow_mut().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_read_atoms_from_file() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "3").unwrap();
+        writeln!(file, "Water").unwrap();
+        writeln!(file, "O 0.0 0.0 0.0").unwrap();
+        writeln!(file, "H 0.0 0.0 0.96").unwrap();
+        writeln!(file, "H 0.0 0.75 -0.24").unwrap();
+
+        let path = file.path().to_string_lossy().to_string();
+        let (atoms, comment) = read_atoms(&path).unwrap();
+
+        assert_eq!(comment, "Water");
+        assert_eq!(atoms.len(), 3);
+        assert_eq!(atoms[0].atomic_number, 8);
+        assert_eq!(atoms[1].atomic_number, 1);
+        assert!(atoms[2].position[2] < 0.0);
+    }
+
+    #[test]
+    fn test_read_atoms_mismatched_count() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "2").unwrap();
+        writeln!(file, "Comment").unwrap();
+        writeln!(file, "H 0.0 0.0 0.0").unwrap();
+
+        let path = file.path().to_string_lossy().to_string();
+        let error = read_atoms(&path).unwrap_err();
+        let error_string = error.to_string();
+        assert!(error_string.contains("Expected 2 atoms, got 1"));
+    }
+
+    #[test]
+    fn test_parse_element_variants() {
+        assert_eq!(parse_element("8"), Some(8));
+        assert_eq!(parse_element("o"), Some(8));
+        assert_eq!(parse_element("Og"), Some(118));
+        assert_eq!(parse_element("Xx"), None);
+    }
+
+    #[test]
+    fn test_write_pretty_table_includes_summary() {
+        let atoms = sample_atoms();
+        let result = sample_result();
+        let mut buffer = Vec::new();
+
+        write_pretty_table(&mut buffer, &atoms, &result, 3, "input.xyz").unwrap();
+        let output = String::from_utf8(buffer).unwrap();
+
+        assert!(output.contains("Cheq Charge Equilibration Results"));
+        assert!(output.contains("Source File:"));
+        assert!(output.contains("input.xyz"));
+        assert!(output.contains("Charge (e)"));
+    }
+
+    #[test]
+    fn test_write_xyz_charged_format() {
+        let atoms = sample_atoms();
+        let result = sample_result();
+        let mut buffer = Vec::new();
+
+        write_xyz_charged(&mut buffer, &atoms, &result, "Water", 2).unwrap();
+        let output = String::from_utf8(buffer).unwrap();
+        let mut lines = output.lines();
+
+        assert_eq!(lines.next(), Some("3"));
+        let meta = lines.next().unwrap();
+        assert!(meta.contains("iterations"));
+        let first_atom = lines.next().unwrap();
+        assert!(first_atom.starts_with("O "));
+    }
+
+    #[test]
+    fn test_write_results_dispatches_formats() {
+        let atoms = sample_atoms();
+        let result = sample_result();
+        let comment = "Comment";
+
+        let (pretty_writer, pretty_buffer) = SharedWriter::new();
+        write_results(
+            Box::new(pretty_writer),
+            &atoms,
+            &result,
+            comment,
+            &OutputFormat::Pretty,
+            2,
+            "source.xyz",
+        )
+        .unwrap();
+        let pretty_output = String::from_utf8(pretty_buffer.borrow().clone()).unwrap();
+        assert!(pretty_output.contains("Cheq Charge Equilibration Results"));
+
+        let (csv_writer, csv_buffer) = SharedWriter::new();
+        write_results(
+            Box::new(csv_writer),
+            &atoms,
+            &result,
+            comment,
+            &OutputFormat::Csv,
+            2,
+            "source.xyz",
+        )
+        .unwrap();
+        let csv_output = String::from_utf8(csv_buffer.borrow().clone()).unwrap();
+        assert!(csv_output.starts_with("index,element,x,y,z,charge"));
+
+        let (json_writer, json_buffer) = SharedWriter::new();
+        write_results(
+            Box::new(json_writer),
+            &atoms,
+            &result,
+            comment,
+            &OutputFormat::Json,
+            2,
+            "source.xyz",
+        )
+        .unwrap();
+        let json_output = String::from_utf8(json_buffer.borrow().clone()).unwrap();
+        assert!(json_output.contains("\"atoms\""));
+
+        let (xyz_writer, xyz_buffer) = SharedWriter::new();
+        write_results(
+            Box::new(xyz_writer),
+            &atoms,
+            &result,
+            comment,
+            &OutputFormat::Xyz,
+            2,
+            "source.xyz",
+        )
+        .unwrap();
+        let xyz_output = String::from_utf8(xyz_buffer.borrow().clone()).unwrap();
+        assert!(xyz_output.lines().next() == Some("3"));
+    }
+
+    #[test]
+    fn test_get_writer_creates_files() {
+        let temp_dir = NamedTempFile::new().unwrap();
+        let mut path = PathBuf::from(temp_dir.path());
+        path.set_extension("out");
+
+        {
+            let writer = get_writer(&Some(path.clone())).unwrap();
+            drop(writer);
+        }
+
+        assert!(fs::metadata(path).is_ok());
+
+        let mut stdout_writer = get_writer(&None).unwrap();
+        assert!(stdout_writer.flush().is_ok());
+    }
+}
