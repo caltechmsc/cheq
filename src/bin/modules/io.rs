@@ -244,3 +244,88 @@ pub fn write_results(
         OutputFormat::Json => write_json(&mut writer, atoms, result, precision),
     }
 }
+
+fn write_pretty_table(
+    writer: &mut dyn Write,
+    atoms: &[Atom],
+    result: &cheq::CalculationResult,
+    precision: usize,
+    source_name: &str,
+) -> Result<(), CliError> {
+    let box_format = format::FormatBuilder::new()
+        .column_separator('│')
+        .borders('│')
+        .separators(
+            &[format::LinePosition::Top],
+            format::LineSeparator::new('─', '┬', '╭', '╮'),
+        )
+        .separators(
+            &[format::LinePosition::Title],
+            format::LineSeparator::new('═', '╪', '╞', '╡'),
+        )
+        .separators(
+            &[format::LinePosition::Intern],
+            format::LineSeparator::new('─', '┼', '├', '┤'),
+        )
+        .separators(
+            &[format::LinePosition::Bottom],
+            format::LineSeparator::new('─', '┴', '╰', '╯'),
+        )
+        .padding(1, 1)
+        .build();
+
+    let no_intern_format = format::FormatBuilder::new()
+        .column_separator('│')
+        .borders('│')
+        .separators(
+            &[format::LinePosition::Top],
+            format::LineSeparator::new('─', '┬', '╭', '╮'),
+        )
+        .separators(
+            &[format::LinePosition::Bottom],
+            format::LineSeparator::new('─', '┴', '╰', '╯'),
+        )
+        .padding(1, 1)
+        .build();
+
+    let total_charge = result.charges.iter().sum::<f64>();
+
+    let mut title_table = Table::new();
+    title_table.set_format(box_format.clone());
+    title_table.add_row(row![bc->"Cheq Charge Equilibration Results"]);
+    title_table.print(writer)?;
+    writeln!(writer)?;
+
+    let mut summary_table = Table::new();
+    summary_table.set_format(no_intern_format);
+    summary_table.add_row(row![b->"Source File:", source_name]);
+    summary_table.add_row(row![b->"Total Atoms:", atoms.len()]);
+    summary_table
+        .add_row(row![b->"Total Charge:", format!("{:.prec$} e", total_charge, prec = precision)]);
+    summary_table.add_row(row![b->"Converged Iterations:", result.iterations]);
+    summary_table.add_row(row![b->"Equilibrated Potential:", format!("{:.prec$} eV", result.equilibrated_potential, prec = precision)]);
+    summary_table.print(writer)?;
+    writeln!(writer)?;
+
+    let mut data_table = Table::new();
+    data_table.set_format(box_format);
+    data_table.set_titles(
+        row![bc->"Index", bc->"Element", bc->"X (Å)", bc->"Y (Å)", bc->"Z (Å)", bc->"Charge (e)"],
+    );
+
+    for (i, (atom, &charge)) in atoms.iter().zip(result.charges.iter()).enumerate() {
+        let symbol = atomic_number_to_symbol(atom.atomic_number).unwrap_or("??");
+        data_table.add_row(row![
+            r->i,
+            l->symbol,
+            r->format!("{:.prec$}", atom.position[0], prec = precision),
+            r->format!("{:.prec$}", atom.position[1], prec = precision),
+            r->format!("{:.prec$}", atom.position[2], prec = precision),
+            r->format!("{:.prec$}", charge, prec = precision)
+        ]);
+    }
+
+    data_table.print(writer)?;
+
+    Ok(())
+}
