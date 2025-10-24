@@ -225,3 +225,22 @@ pub fn get_writer(output_path: &Option<PathBuf>) -> Result<Box<dyn Write>, CliEr
         None => Ok(Box::new(io::stdout())),
     }
 }
+
+pub fn write_results(
+    mut writer: Box<dyn Write>,
+    atoms: &[Atom],
+    result: &cheq::CalculationResult,
+    comment: &str,
+    format: &OutputFormat,
+    precision: usize,
+    source_name: &str,
+) -> Result<(), CliError> {
+    match format {
+        OutputFormat::Pretty => {
+            write_pretty_table(&mut writer, atoms, result, precision, source_name)
+        }
+        OutputFormat::Xyz => write_xyz_charged(&mut writer, atoms, result, comment, precision),
+        OutputFormat::Csv => write_csv(&mut writer, atoms, result, precision),
+        OutputFormat::Json => write_json(&mut writer, atoms, result, precision),
+    }
+}
