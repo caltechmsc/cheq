@@ -14,11 +14,33 @@ The core mission of Cheq is to provide a reliable, predictable, and easy-to-inte
 
 ## Getting Started
 
-To get started with Cheq, add it as a dependency in your `Cargo.toml`:
+Cheq ships as both a command-line tool for end users and a library crate for developers.
+
+### For CLI users
+
+Install the binary from crates.io:
+
+```sh
+cargo install cheq
+```
+
+Or download precompiled binaries from the [releases page](https://github.com/caltechmsc/cheq/releases).
+
+Once installed, provide an XYZ file and review the formatted output:
+
+```sh
+cheq water.xyz
+```
+
+The `cheq` command accepts additional options for output formatting, solver tolerances, and custom parameter files. See the [CLI User Manual](USAGE.md) for the full reference and usage patterns.
+
+### For library developers
+
+Add Cheq to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cheq = "0.1.0"
+cheq = "0.2.0"
 ```
 
 Then, you can use it in your Rust code as follows:
@@ -66,6 +88,7 @@ fn main() {
 
 ## Documentation
 
+- [CLI User Manual](USAGE.md) - Step-by-step reference for running the Cheq CLI.
 - [API Documentation](https://docs.rs/cheq) - Comprehensive reference for all public types and functions.
 - [Theory Background](https://pubs.acs.org/doi/10.1021/j100161a070) - The original QEq paper by Rappé and Goddard (J. Phys. Chem. 1991, 95, 3358-3363).
 
