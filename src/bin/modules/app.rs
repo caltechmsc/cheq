@@ -57,3 +57,79 @@ pub fn run(args: Cli) -> Result<(), CliError> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::cli::{CalculationOptions, OutputFormat, OutputOptions, SolverOptions};
+    use super::super::error::CliError;
+    use super::*;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::TempDir;
+
+    fn write_test_xyz(path: &Path) {
+        fs::write(path, "2\nHydrogen\nH 0.0 0.0 0.0\nH 0.0 0.0 0.74\n").unwrap();
+    }
+
+    fn default_solver_options() -> SolverOptions {
+        SolverOptions {
+            tolerance: 1e-6,
+            max_iterations: 50,
+            lambda_scale: 0.5,
+        }
+    }
+
+    #[test]
+    fn test_run_generates_pretty_output() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_path = temp_dir.path().join("input.xyz");
+        write_test_xyz(&input_path);
+        let output_path = temp_dir.path().join("output.txt");
+
+        let args = Cli {
+            input: input_path.to_string_lossy().into_owned(),
+            output: OutputOptions {
+                output: Some(output_path.clone()),
+                format: OutputFormat::Pretty,
+                precision: 4,
+            },
+            calculation: CalculationOptions {
+                params: None,
+                total_charge: 0.0,
+            },
+            solver: default_solver_options(),
+        };
+
+        run(args).unwrap();
+
+        let output_contents = fs::read_to_string(&output_path).unwrap();
+        assert!(output_contents.contains("Cheq Charge Equilibration Results"));
+        assert!(output_contents.contains("Total Atoms:"));
+    }
+
+    #[test]
+    fn test_run_invalid_params_file_returns_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let input_path = temp_dir.path().join("input.xyz");
+        write_test_xyz(&input_path);
+        let bad_params_path = temp_dir.path().join("bad.toml");
+        fs::write(&bad_params_path, "not valid toml").unwrap();
+
+        let args = Cli {
+            input: input_path.to_string_lossy().into_owned(),
+            output: OutputOptions {
+                output: None,
+                format: OutputFormat::Pretty,
+                precision: 4,
+            },
+            calculation: CalculationOptions {
+                params: Some(bad_params_path),
+                total_charge: 0.0,
+            },
+            solver: default_solver_options(),
+        };
+
+        let error = run(args).unwrap_err();
+        assert!(matches!(error, CliError::ParamsParse(_)));
+    }
+}
