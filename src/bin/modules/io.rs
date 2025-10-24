@@ -364,3 +364,30 @@ fn write_xyz_charged(
     }
     Ok(())
 }
+
+fn write_csv(
+    writer: &mut dyn Write,
+    atoms: &[Atom],
+    result: &cheq::CalculationResult,
+    precision: usize,
+) -> Result<(), CliError> {
+    writeln!(writer, "index,element,x,y,z,charge")?;
+    for (i, (atom, &charge)) in atoms.iter().zip(result.charges.iter()).enumerate() {
+        let symbol = atomic_number_to_symbol(atom.atomic_number).unwrap_or("??");
+        writeln!(
+            writer,
+            "{},{},{:.*},{:.*},{:.*},{:.*}",
+            i,
+            symbol,
+            precision,
+            atom.position[0],
+            precision,
+            atom.position[1],
+            precision,
+            atom.position[2],
+            precision,
+            charge
+        )?;
+    }
+    Ok(())
+}
