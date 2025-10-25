@@ -1,0 +1,112 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+env:
+  BINARY_PREFIX: cheq
+
+jobs:
+  build-cli:
+    name: Build CLI for ${{ matrix.target }} on ${{ matrix.os_name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            os_name: "Linux x86_64"
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-22.04-arm64
+            os_name: "Linux aarch64"
+            target: aarch64-unknown-linux-gnu
+          - os: macos-13
+            os_name: "macOS x86_64"
+            target: x86_64-apple-darwin
+          - os: macos-14
+            os_name: "macOS aarch64"
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            os_name: "Windows x86_64"
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build binary
+        shell: bash
+        run: cargo build --package cheq --release --target ${{ matrix.target }}
+        env:
+          CARGO_TERM_COLOR: always
+
+      - name: Prepare package content
+        shell: bash
+        run: |
+          ARTIFACT_DIR="dist"
+          mkdir -p $ARTIFACT_DIR
+
+          RELEASE_VERSION=$(echo "${{ github.ref_name }}" | sed 's/v//')
+
+          if [[ "${{ matrix.target }}" == *"-windows-"* ]]; then
+            BINARY_NAME="cheq.exe"
+            ARCHIVE_NAME="${{ env.BINARY_PREFIX }}-v${RELEASE_VERSION}-${{ matrix.target }}.zip"
+          else
+            BINARY_NAME="cheq"
+            ARCHIVE_NAME="${{ env.BINARY_PREFIX }}-v${RELEASE_VERSION}-${{ matrix.target }}.tar.gz"
+          fi
+
+          SOURCE_PATH="target/${{ matrix.target }}/release/$BINARY_NAME"
+
+          cp "$SOURCE_PATH" "$ARTIFACT_DIR/$BINARY_NAME"
+          cp LICENSE README.md USAGE.md "$ARTIFACT_DIR/"
+
+          cd $ARTIFACT_DIR
+
+          if [[ "${{ matrix.target }}" == *"-windows-"* ]]; then
+            7z a "../$ARCHIVE_NAME" .
+          else
+            tar -czf "../$ARCHIVE_NAME" .
+          fi
+          cd ..
+
+          echo "ARCHIVE_PATH=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: ${{ env.ARCHIVE_PATH }}
+          retention-days: 1
+
+  upload-assets:
+    name: Upload Assets to Release
+    needs: [build-cli]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: List downloaded artifacts
+        run: ls -R artifacts
+
+      - name: Upload assets to GitHub Release
+        uses: svenstaro/upload-release-action@v2
+        with:
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          file: artifacts/**/*.*
+          tag: ${{ github.ref }}
+          overwrite: true
+          file_glob: true
