@@ -223,68 +223,102 @@ impl<'p> QEqSolver<'p> {
             .collect()
     }
 
-    /// Builds the linear system matrix and vector for the QEq equations.
+    /// Precomputes the geometry-invariant parts of the linear system.
     ///
-    /// This method constructs the coefficient matrix `A` and right-hand side vector `b` for the
-    /// linear system `A x = b`, where `x` includes atomic charges and the Lagrange multiplier
-    /// for the total charge constraint. Diagonal elements represent atomic hardness, off-diagonal
-    /// elements are screened Coulomb integrals, and the last row enforces charge conservation.
-    ///
-    /// # Arguments
-    ///
-    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
-    /// * `element_data` - Pre-fetched element data for each atom.
-    /// * `total_charge` - The desired total charge of the system.
-    /// * `current_charges` - Current estimates of atomic charges for hydrogen hardness adjustment.
-    ///
-    /// # Returns
-    ///
-    /// A tuple `(A, b)` representing the matrix and vector of the linear system.
-    ///
-    /// # Errors
-    ///
-    /// This function does not directly return errors but propagates any from underlying calculations.
-    fn build_system<A: AtomView>(
+    /// Builds the base coefficient matrix (diagonal hardness, screened Coulomb off-diagonals,
+    /// and charge conservation row/col) plus the RHS vector. Hydrogen diagonal metadata is
+    /// stored so the per-iteration charge-dependent hardness update only touches a few entries.
+    fn build_invariant_system<A: AtomView>(
         &self,
         atoms: &[A],
         element_data: &[&'p ElementData],
         total_charge: f64,
-        current_charges: ColRef<f64>,
-    ) -> Result<(Mat<f64>, Col<f64>), CheqError> {
+    ) -> Result<InvariantSystem, CheqError> {
         let n_atoms = atoms.len();
         let matrix_size = n_atoms + 1;
 
-        let mut a = Mat::zeros(matrix_size, matrix_size);
-        let mut b = Col::zeros(matrix_size);
-        let mut a_mut = a.as_mut();
-        let mut b_mut = b.as_mut();
+        let mut base_matrix = Mat::zeros(matrix_size, matrix_size);
+        let mut rhs = Col::zeros(matrix_size);
+
+        let mut hydrogen_meta = Vec::new();
 
         for i in 0..n_atoms {
             let data_i = element_data[i];
+            base_matrix[(i, i)] = data_i.hardness;
+            rhs[i] = -data_i.electronegativity;
 
-            // Adjust hardness for hydrogen based on current charge to model non-linearity
-            let j_ii = if data_i.principal_quantum_number == 1 {
-                data_i.hardness * (1.0 + current_charges[i] * H_CHARGE_DEPENDENCE_FACTOR)
-            } else {
-                data_i.hardness
-            };
-            a_mut[(i, i)] = j_ii;
+            if data_i.principal_quantum_number == 1 {
+                hydrogen_meta.push((i, data_i.hardness));
+            }
+        }
+
+        let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
+
+        let off_diagonals =
+            compute_off_diagonal_rows(&positions, element_data, self.options.lambda_scale);
+        for (i, row_vals) in off_diagonals {
+            for (offset, &val) in row_vals.iter().enumerate() {
+                let j = i + 1 + offset;
+                base_matrix[(i, j)] = val;
+                base_matrix[(j, i)] = val;
+            }
+        }
+
+        base_matrix
+            .col_mut(matrix_size - 1)
+            .subrows_mut(0, n_atoms)
+            .fill(-1.0);
+        base_matrix
+            .row_mut(matrix_size - 1)
+            .subcols_mut(0, n_atoms)
+            .fill(1.0);
+        rhs[matrix_size - 1] = total_charge;
+
+        Ok(InvariantSystem {
+            base_matrix,
+            rhs,
+            hydrogen_meta,
+        })
+    }
+}
+
+/// Geometry-invariant linear system components reused across SCF iterations.
+struct InvariantSystem {
+    base_matrix: Mat<f64>,
+    rhs: Col<f64>,
+    hydrogen_meta: Vec<(usize, f64)>,
+}
+
+/// Computes screened Coulomb off-diagonal entries for the upper triangle.
+fn compute_off_diagonal_rows(
+    positions: &[[f64; 3]],
+    element_data: &[&ElementData],
+    lambda_scale: f64,
+) -> Vec<(usize, Vec<f64>)> {
+    let n_atoms = positions.len();
+
+    (0..n_atoms)
+        .into_par_iter()
+        .map(|i| {
+            let data_i = element_data[i];
+            let pos_i = positions[i];
+            let radius_i_bohr = data_i.radius / math::constants::BOHR_TO_ANGSTROM;
+            let mut row_vals = Vec::with_capacity(n_atoms.saturating_sub(i + 1));
 
             for j in (i + 1)..n_atoms {
                 let data_j = element_data[j];
-
-                let pos_i = atoms[i].position();
-                let pos_j = atoms[j].position();
+                let pos_j = positions[j];
                 let dist_sq: f64 = pos_i
                     .iter()
                     .zip(pos_j.iter())
-                    .map(|(pi, pj)| (pi - pj).powi(2))
+                    .map(|(pi, pj)| {
+                        let diff = pi - pj;
+                        diff * diff
+                    })
                     .sum();
                 let distance_angstrom = dist_sq.sqrt();
-
-                // Convert to atomic units for shielding calculations
                 let distance_bohr = distance_angstrom / math::constants::BOHR_TO_ANGSTROM;
-                let radius_i_bohr = data_i.radius / math::constants::BOHR_TO_ANGSTROM;
+
                 let radius_j_bohr = data_j.radius / math::constants::BOHR_TO_ANGSTROM;
 
                 let j_ij_hartree = math::shielding::gaussian_coulomb_integral(
@@ -293,28 +327,16 @@ impl<'p> QEqSolver<'p> {
                     radius_i_bohr,
                     data_j.principal_quantum_number,
                     radius_j_bohr,
-                    self.options.lambda_scale,
+                    lambda_scale,
                 );
 
-                // Convert back to eV for consistency with electronegativity units
                 let j_ij_ev = j_ij_hartree * math::constants::HARTREE_TO_EV;
-                a_mut[(i, j)] = j_ij_ev;
-                a_mut[(j, i)] = j_ij_ev;
+                row_vals.push(j_ij_ev);
             }
 
-            b_mut[i] = -data_i.electronegativity;
-        }
-
-        // Apply total charge constraint to the last row of the matrix
-        a.col_mut(matrix_size - 1)
-            .subrows_mut(0, n_atoms)
-            .fill(-1.0);
-        a.row_mut(matrix_size - 1).subcols_mut(0, n_atoms).fill(1.0);
-
-        b_mut[matrix_size - 1] = total_charge;
-
-        Ok((a, b))
-    }
+            (i, row_vals)
+        })
+        .collect()
 }
 
 #[cfg(test)]
