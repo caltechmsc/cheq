@@ -692,6 +692,7 @@ mod tests {
             max_iterations: 1,
             tolerance: 1e-20,
             lambda_scale: 1.0,
+            ..SolverOptions::default()
         };
         let solver = QEqSolver::new(params).with_options(options);
         let atoms = vec![
@@ -741,6 +742,7 @@ mod tests {
             max_iterations: 100,
             tolerance: 1e-10,
             lambda_scale: 1.0,
+            ..SolverOptions::default()
         };
         let solver = QEqSolver::new(params).with_options(options);
         let atoms = vec![Atom {
@@ -749,5 +751,96 @@ mod tests {
         }];
         let result = solver.solve(&atoms, 0.0).unwrap();
         assert_eq!(result.charges.len(), 1);
+    }
+
+    #[test]
+    fn test_cutoff_large_matches_dense() {
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.74, 0.0, 0.0],
+            },
+        ];
+
+        let base_solver = get_test_solver();
+        let base = base_solver.solve(&atoms, 0.0).unwrap();
+
+        let params = get_default_parameters();
+        let cutoff_solver = QEqSolver::new(params).with_options(SolverOptions {
+            cutoff_radius: Some(10.0),
+            ..SolverOptions::default()
+        });
+        let cutoff = cutoff_solver.solve(&atoms, 0.0).unwrap();
+
+        assert_relative_eq!(cutoff.charges[0], base.charges[0], epsilon = 1e-9);
+        assert_relative_eq!(cutoff.charges[1], base.charges[1], epsilon = 1e-9);
+        assert_relative_eq!(cutoff.charges.iter().sum::<f64>(), 0.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_hydrogen_inner_iters_respects_charge() {
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.96, 0.0, 0.0],
+            },
+        ];
+
+        let base = get_test_solver().solve(&atoms, -1.0).unwrap();
+
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params).with_options(SolverOptions {
+            hydrogen_inner_iters: 2,
+            ..SolverOptions::default()
+        });
+        let result = solver.solve(&atoms, -1.0).unwrap();
+
+        assert_relative_eq!(result.charges.iter().sum::<f64>(), -1.0, epsilon = 1e-9);
+        assert_relative_eq!(result.charges[0], base.charges[0], epsilon = 1e-5);
+        assert_relative_eq!(result.charges[1], base.charges[1], epsilon = 1e-5);
+    }
+
+    #[test]
+    fn test_hydrogen_scf_off_converges_in_one_iteration() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params).with_options(SolverOptions {
+            hydrogen_scf: false,
+            ..SolverOptions::default()
+        });
+
+        let bond_length = 0.9575;
+        let bond_angle_rad = 104.45f64.to_radians();
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [bond_length, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [
+                    bond_length * bond_angle_rad.cos(),
+                    bond_length * bond_angle_rad.sin(),
+                    0.0,
+                ],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+
+        assert_eq!(result.iterations, 1);
+        assert_relative_eq!(result.charges.iter().sum::<f64>(), 0.0, epsilon = 1e-9);
+        assert_relative_eq!(result.charges[1], result.charges[2], epsilon = 1e-9);
     }
 }
