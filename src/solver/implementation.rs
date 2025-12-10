@@ -366,9 +366,16 @@ fn compute_dense_off_diagonals(
             let mut row_vals = Vec::with_capacity(n_atoms.saturating_sub(i + 1));
 
             for j in (i + 1)..n_atoms {
+                let dist_sq: f64 = pos_i
+                    .iter()
+                    .zip(positions[j].iter())
+                    .map(|(pi, pj)| {
+                        let diff = pi - pj;
+                        diff * diff
+                    })
+                    .sum();
                 let val = compute_pair_entry(
-                    pos_i,
-                    positions[j],
+                    dist_sq,
                     data_i,
                     element_data[j],
                     radius_i_bohr,
@@ -440,8 +447,7 @@ fn compute_cutoff_off_diagonals(
                                     continue;
                                 }
                                 let val = compute_pair_entry(
-                                    pos_i,
-                                    positions[j],
+                                    dist_sq,
                                     data_i,
                                     element_data[j],
                                     radius_i_bohr,
@@ -462,21 +468,12 @@ fn compute_cutoff_off_diagonals(
 
 /// Computes the screened Coulomb interaction entry between two atoms.
 fn compute_pair_entry(
-    pos_i: [f64; 3],
-    pos_j: [f64; 3],
+    dist_sq: f64,
     data_i: &ElementData,
     data_j: &ElementData,
     radius_i_bohr: f64,
     lambda_scale: f64,
 ) -> f64 {
-    let dist_sq: f64 = pos_i
-        .iter()
-        .zip(pos_j.iter())
-        .map(|(pi, pj)| {
-            let diff = pi - pj;
-            diff * diff
-        })
-        .sum();
     let distance_angstrom = dist_sq.sqrt();
     let distance_bohr = distance_angstrom / math::constants::BOHR_TO_ANGSTROM;
     let radius_j_bohr = data_j.radius / math::constants::BOHR_TO_ANGSTROM;
