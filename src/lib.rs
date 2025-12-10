@@ -112,11 +112,11 @@ mod tests {
     fn test_get_default_parameters() {
         let params1 = get_default_parameters();
         assert!(
-            params1.elements.get(&6).is_some(),
+            params1.elements.contains_key(&6),
             "Carbon (6) should be present"
         );
         assert!(
-            params1.elements.get(&8).is_some(),
+            params1.elements.contains_key(&8),
             "Oxygen (8) should be present"
         );
 
