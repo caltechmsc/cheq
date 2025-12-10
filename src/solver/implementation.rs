@@ -142,13 +142,24 @@ impl<'p> QEqSolver<'p> {
         let invariant = self.build_invariant_system(atoms, &element_data, total_charge)?;
         let has_hydrogen = !invariant.hydrogen_meta.is_empty();
         let mut charges = Col::zeros(n_atoms);
-        let mut max_charge_delta = 0.0;
         let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
         let inner_iters = if hydrogen_scf {
             self.options.hydrogen_inner_iters
         } else {
             0
         };
+
+        if !hydrogen_scf {
+            let (_, equilibrated_potential) =
+                self.run_single_solve(&invariant, &mut charges, hydrogen_scf)?;
+            return Ok(CalculationResult {
+                charges: charges.as_ref().iter().cloned().collect(),
+                equilibrated_potential,
+                iterations: 1,
+            });
+        }
+
+        let mut max_charge_delta = 0.0;
 
         for iteration in 1..=self.options.max_iterations {
             if inner_iters > 0 {
