@@ -14,7 +14,8 @@ use crate::{
     params::{ElementData, Parameters},
     types::{AtomView, CalculationResult},
 };
-use faer::{Col, ColRef, Mat, prelude::*};
+use faer::{Col, Mat, prelude::*};
+use rayon::prelude::*;
 use std::panic::{self, AssertUnwindSafe};
 
 /// Charge dependence factor for hydrogen hardness, derived from empirical fitting.
@@ -137,18 +138,24 @@ impl<'p> QEqSolver<'p> {
         }
 
         let element_data = self.fetch_element_data(atoms)?;
-        let has_hydrogen = element_data
-            .iter()
-            .any(|data| data.principal_quantum_number == 1);
+        let invariant = self.build_invariant_system(atoms, &element_data, total_charge)?;
+        let has_hydrogen = !invariant.hydrogen_meta.is_empty();
 
+        let mut work_matrix = invariant.base_matrix.clone();
         let mut charges = Col::zeros(n_atoms);
         let mut max_charge_delta = 0.0;
 
         for iteration in 1..=self.options.max_iterations {
-            let (a, b) = self.build_system(atoms, &element_data, total_charge, charges.as_ref())?;
+            if has_hydrogen {
+                for &(idx, hardness) in &invariant.hydrogen_meta {
+                    work_matrix[(idx, idx)] =
+                        hardness * (1.0 + charges[idx] * H_CHARGE_DEPENDENCE_FACTOR);
+                }
+            }
 
-            let solve_result =
-                panic::catch_unwind(AssertUnwindSafe(|| a.partial_piv_lu().solve(&b)));
+            let solve_result = panic::catch_unwind(AssertUnwindSafe(|| {
+                work_matrix.partial_piv_lu().solve(&invariant.rhs)
+            }));
 
             let solution = match solve_result {
                 Ok(sol) => sol,
@@ -160,10 +167,12 @@ impl<'p> QEqSolver<'p> {
             };
 
             let new_charges = solution.as_ref().subrows(0, n_atoms);
-
-            let diff_abs = Col::from_fn(n_atoms, |i| (new_charges[i] - charges[i]).abs());
-            max_charge_delta = diff_abs.max().unwrap();
-
+            max_charge_delta = new_charges
+                .as_ref()
+                .iter()
+                .zip(charges.as_ref().iter())
+                .map(|(new, old): (&f64, &f64)| (*new - *old).abs())
+                .fold(0.0, f64::max);
             charges.as_mut().copy_from(&new_charges);
 
             if !has_hydrogen || max_charge_delta < self.options.tolerance {
