@@ -16,6 +16,7 @@ use crate::{
 };
 use faer::{Col, Mat, prelude::*};
 use rayon::prelude::*;
+use std::collections::HashMap;
 use std::panic::{self, AssertUnwindSafe};
 
 /// Charge dependence factor for hydrogen hardness, derived from empirical fitting.
@@ -80,7 +81,7 @@ impl<'p> QEqSolver<'p> {
     /// use cheq::{get_default_parameters, QEqSolver, SolverOptions};
     ///
     /// let params = get_default_parameters();
-    /// let options = SolverOptions { tolerance: 1e-8, max_iterations: 50, lambda_scale: 1.0 };
+    /// let options = SolverOptions { tolerance: 1e-8, max_iterations: 50, lambda_scale: 1.0, ..SolverOptions::default() };
     /// let solver = QEqSolver::new(&params).with_options(options);
     /// ```
     pub fn with_options(mut self, options: SolverOptions) -> Self {
@@ -140,43 +141,42 @@ impl<'p> QEqSolver<'p> {
         let element_data = self.fetch_element_data(atoms)?;
         let invariant = self.build_invariant_system(atoms, &element_data, total_charge)?;
         let has_hydrogen = !invariant.hydrogen_meta.is_empty();
-
-        let mut work_matrix = invariant.base_matrix.clone();
         let mut charges = Col::zeros(n_atoms);
+        let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
+        let inner_iters = if hydrogen_scf {
+            self.options.hydrogen_inner_iters
+        } else {
+            0
+        };
+
+        if !hydrogen_scf {
+            let (_, equilibrated_potential) =
+                self.run_single_solve(&invariant, &mut charges, hydrogen_scf)?;
+            return Ok(CalculationResult {
+                charges: charges.as_ref().iter().cloned().collect(),
+                equilibrated_potential,
+                iterations: 1,
+            });
+        }
+
         let mut max_charge_delta = 0.0;
 
         for iteration in 1..=self.options.max_iterations {
-            if has_hydrogen {
-                for &(idx, hardness) in &invariant.hydrogen_meta {
-                    work_matrix[(idx, idx)] =
-                        hardness * (1.0 + charges[idx] * H_CHARGE_DEPENDENCE_FACTOR);
+            if inner_iters > 0 {
+                for _ in 0..inner_iters {
+                    let (delta, _) =
+                        self.run_single_solve(&invariant, &mut charges, hydrogen_scf)?;
+                    if delta < self.options.tolerance {
+                        break;
+                    }
                 }
             }
 
-            let solve_result = panic::catch_unwind(AssertUnwindSafe(|| {
-                work_matrix.partial_piv_lu().solve(&invariant.rhs)
-            }));
+            let (delta, equilibrated_potential) =
+                self.run_single_solve(&invariant, &mut charges, hydrogen_scf)?;
+            max_charge_delta = delta;
 
-            let solution = match solve_result {
-                Ok(sol) => sol,
-                Err(_) => {
-                    return Err(CheqError::LinalgError(
-                        "Linear system is likely singular or ill-conditioned due to input geometry.".to_string(),
-                    ));
-                }
-            };
-
-            let new_charges = solution.as_ref().subrows(0, n_atoms);
-            max_charge_delta = new_charges
-                .as_ref()
-                .iter()
-                .zip(charges.as_ref().iter())
-                .map(|(new, old): (&f64, &f64)| (*new - *old).abs())
-                .fold(0.0, f64::max);
-            charges.as_mut().copy_from(&new_charges);
-
-            if !has_hydrogen || max_charge_delta < self.options.tolerance {
-                let equilibrated_potential = -solution[n_atoms];
+            if !hydrogen_scf || max_charge_delta < self.options.tolerance {
                 return Ok(CalculationResult {
                     charges: charges.as_ref().iter().cloned().collect(),
                     equilibrated_potential,
@@ -254,11 +254,14 @@ impl<'p> QEqSolver<'p> {
 
         let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
 
-        let off_diagonals =
-            compute_off_diagonal_rows(&positions, element_data, self.options.lambda_scale);
-        for (i, row_vals) in off_diagonals {
-            for (offset, &val) in row_vals.iter().enumerate() {
-                let j = i + 1 + offset;
+        let off_diagonals = compute_off_diagonal_rows(
+            &positions,
+            element_data,
+            self.options.lambda_scale,
+            self.options.cutoff_radius,
+        );
+        for (i, entries) in off_diagonals {
+            for (j, val) in entries {
                 base_matrix[(i, j)] = val;
                 base_matrix[(j, i)] = val;
             }
@@ -280,6 +283,50 @@ impl<'p> QEqSolver<'p> {
             hydrogen_meta,
         })
     }
+
+    /// Performs a single SCF iteration to solve the linear system and update charges.
+    fn run_single_solve(
+        &self,
+        invariant: &InvariantSystem,
+        charges: &mut Col<f64>,
+        hydrogen_scf: bool,
+    ) -> Result<(f64, f64), CheqError> {
+        let n_atoms = charges.nrows();
+        let mut work_matrix = invariant.base_matrix.clone();
+
+        if hydrogen_scf {
+            for &(idx, hardness) in &invariant.hydrogen_meta {
+                work_matrix[(idx, idx)] =
+                    hardness * (1.0 + charges[idx] * H_CHARGE_DEPENDENCE_FACTOR);
+            }
+        }
+
+        let solve_result = panic::catch_unwind(AssertUnwindSafe(|| {
+            work_matrix.partial_piv_lu().solve(&invariant.rhs)
+        }));
+
+        let solution = match solve_result {
+            Ok(sol) => sol,
+            Err(_) => {
+                return Err(CheqError::LinalgError(
+                    "Linear system is likely singular or ill-conditioned due to input geometry."
+                        .to_string(),
+                ));
+            }
+        };
+
+        let new_charges = solution.as_ref().subrows(0, n_atoms);
+        let max_charge_delta = new_charges
+            .as_ref()
+            .iter()
+            .zip(charges.as_ref().iter())
+            .map(|(new, old): (&f64, &f64)| (*new - *old).abs())
+            .fold(0.0, f64::max);
+        charges.as_mut().copy_from(&new_charges);
+
+        let equilibrated_potential = -solution[n_atoms];
+        Ok((max_charge_delta, equilibrated_potential))
+    }
 }
 
 /// Geometry-invariant linear system components reused across SCF iterations.
@@ -294,7 +341,20 @@ fn compute_off_diagonal_rows(
     positions: &[[f64; 3]],
     element_data: &[&ElementData],
     lambda_scale: f64,
-) -> Vec<(usize, Vec<f64>)> {
+    cutoff_radius: Option<f64>,
+) -> Vec<(usize, Vec<(usize, f64)>)> {
+    match cutoff_radius {
+        None => compute_dense_off_diagonals(positions, element_data, lambda_scale),
+        Some(radius) => compute_cutoff_off_diagonals(positions, element_data, lambda_scale, radius),
+    }
+}
+
+/// Computes all off-diagonal entries without cutoff.
+fn compute_dense_off_diagonals(
+    positions: &[[f64; 3]],
+    element_data: &[&ElementData],
+    lambda_scale: f64,
+) -> Vec<(usize, Vec<(usize, f64)>)> {
     let n_atoms = positions.len();
 
     (0..n_atoms)
@@ -306,37 +366,128 @@ fn compute_off_diagonal_rows(
             let mut row_vals = Vec::with_capacity(n_atoms.saturating_sub(i + 1));
 
             for j in (i + 1)..n_atoms {
-                let data_j = element_data[j];
-                let pos_j = positions[j];
                 let dist_sq: f64 = pos_i
                     .iter()
-                    .zip(pos_j.iter())
+                    .zip(positions[j].iter())
                     .map(|(pi, pj)| {
                         let diff = pi - pj;
                         diff * diff
                     })
                     .sum();
-                let distance_angstrom = dist_sq.sqrt();
-                let distance_bohr = distance_angstrom / math::constants::BOHR_TO_ANGSTROM;
-
-                let radius_j_bohr = data_j.radius / math::constants::BOHR_TO_ANGSTROM;
-
-                let j_ij_hartree = math::shielding::gaussian_coulomb_integral(
-                    distance_bohr,
-                    data_i.principal_quantum_number,
+                let val = compute_pair_entry(
+                    dist_sq,
+                    data_i,
+                    element_data[j],
                     radius_i_bohr,
-                    data_j.principal_quantum_number,
-                    radius_j_bohr,
                     lambda_scale,
                 );
-
-                let j_ij_ev = j_ij_hartree * math::constants::HARTREE_TO_EV;
-                row_vals.push(j_ij_ev);
+                row_vals.push((j, val));
             }
 
             (i, row_vals)
         })
         .collect()
+}
+
+/// Computes off-diagonal entries with a hard cutoff radius.
+fn compute_cutoff_off_diagonals(
+    positions: &[[f64; 3]],
+    element_data: &[&ElementData],
+    lambda_scale: f64,
+    cutoff_radius: f64,
+) -> Vec<(usize, Vec<(usize, f64)>)> {
+    let n_atoms = positions.len();
+    let cell_size = cutoff_radius;
+    let mut cells: HashMap<(i64, i64, i64), Vec<usize>> = HashMap::new();
+
+    for (idx, pos) in positions.iter().enumerate() {
+        let key = (
+            (pos[0] / cell_size).floor() as i64,
+            (pos[1] / cell_size).floor() as i64,
+            (pos[2] / cell_size).floor() as i64,
+        );
+        cells.entry(key).or_default().push(idx);
+    }
+
+    let cells = std::sync::Arc::new(cells);
+    let cutoff_sq = cutoff_radius * cutoff_radius;
+
+    (0..n_atoms)
+        .into_par_iter()
+        .map(|i| {
+            let data_i = element_data[i];
+            let pos_i = positions[i];
+            let radius_i_bohr = data_i.radius / math::constants::BOHR_TO_ANGSTROM;
+            let key = (
+                (pos_i[0] / cell_size).floor() as i64,
+                (pos_i[1] / cell_size).floor() as i64,
+                (pos_i[2] / cell_size).floor() as i64,
+            );
+
+            let mut entries = Vec::new();
+
+            for dx in -1..=1 {
+                for dy in -1..=1 {
+                    for dz in -1..=1 {
+                        let neighbor_key = (key.0 + dx, key.1 + dy, key.2 + dz);
+                        if let Some(indices) = cells.get(&neighbor_key) {
+                            for &j in indices {
+                                if j <= i {
+                                    continue;
+                                }
+                                let dist_sq: f64 = pos_i
+                                    .iter()
+                                    .zip(positions[j].iter())
+                                    .map(|(pi, pj)| {
+                                        let diff = pi - pj;
+                                        diff * diff
+                                    })
+                                    .sum();
+                                if dist_sq > cutoff_sq {
+                                    continue;
+                                }
+                                let val = compute_pair_entry(
+                                    dist_sq,
+                                    data_i,
+                                    element_data[j],
+                                    radius_i_bohr,
+                                    lambda_scale,
+                                );
+                                entries.push((j, val));
+                            }
+                        }
+                    }
+                }
+            }
+
+            entries.sort_by_key(|(j, _)| *j);
+            (i, entries)
+        })
+        .collect()
+}
+
+/// Computes the screened Coulomb interaction entry between two atoms.
+fn compute_pair_entry(
+    dist_sq: f64,
+    data_i: &ElementData,
+    data_j: &ElementData,
+    radius_i_bohr: f64,
+    lambda_scale: f64,
+) -> f64 {
+    let distance_angstrom = dist_sq.sqrt();
+    let distance_bohr = distance_angstrom / math::constants::BOHR_TO_ANGSTROM;
+    let radius_j_bohr = data_j.radius / math::constants::BOHR_TO_ANGSTROM;
+
+    let j_ij_hartree = math::shielding::gaussian_coulomb_integral(
+        distance_bohr,
+        data_i.principal_quantum_number,
+        radius_i_bohr,
+        data_j.principal_quantum_number,
+        radius_j_bohr,
+        lambda_scale,
+    );
+
+    j_ij_hartree * math::constants::HARTREE_TO_EV
 }
 
 #[cfg(test)]
@@ -549,6 +700,7 @@ mod tests {
             max_iterations: 1,
             tolerance: 1e-20,
             lambda_scale: 1.0,
+            ..SolverOptions::default()
         };
         let solver = QEqSolver::new(params).with_options(options);
         let atoms = vec![
@@ -598,6 +750,7 @@ mod tests {
             max_iterations: 100,
             tolerance: 1e-10,
             lambda_scale: 1.0,
+            ..SolverOptions::default()
         };
         let solver = QEqSolver::new(params).with_options(options);
         let atoms = vec![Atom {
@@ -606,5 +759,96 @@ mod tests {
         }];
         let result = solver.solve(&atoms, 0.0).unwrap();
         assert_eq!(result.charges.len(), 1);
+    }
+
+    #[test]
+    fn test_cutoff_large_matches_dense() {
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.74, 0.0, 0.0],
+            },
+        ];
+
+        let base_solver = get_test_solver();
+        let base = base_solver.solve(&atoms, 0.0).unwrap();
+
+        let params = get_default_parameters();
+        let cutoff_solver = QEqSolver::new(params).with_options(SolverOptions {
+            cutoff_radius: Some(10.0),
+            ..SolverOptions::default()
+        });
+        let cutoff = cutoff_solver.solve(&atoms, 0.0).unwrap();
+
+        assert_relative_eq!(cutoff.charges[0], base.charges[0], epsilon = 1e-9);
+        assert_relative_eq!(cutoff.charges[1], base.charges[1], epsilon = 1e-9);
+        assert_relative_eq!(cutoff.charges.iter().sum::<f64>(), 0.0, epsilon = 1e-9);
+    }
+
+    #[test]
+    fn test_hydrogen_inner_iters_respects_charge() {
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.96, 0.0, 0.0],
+            },
+        ];
+
+        let base = get_test_solver().solve(&atoms, -1.0).unwrap();
+
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params).with_options(SolverOptions {
+            hydrogen_inner_iters: 2,
+            ..SolverOptions::default()
+        });
+        let result = solver.solve(&atoms, -1.0).unwrap();
+
+        assert_relative_eq!(result.charges.iter().sum::<f64>(), -1.0, epsilon = 1e-9);
+        assert_relative_eq!(result.charges[0], base.charges[0], epsilon = 1e-5);
+        assert_relative_eq!(result.charges[1], base.charges[1], epsilon = 1e-5);
+    }
+
+    #[test]
+    fn test_hydrogen_scf_off_converges_in_one_iteration() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params).with_options(SolverOptions {
+            hydrogen_scf: false,
+            ..SolverOptions::default()
+        });
+
+        let bond_length = 0.9575;
+        let bond_angle_rad = 104.45f64.to_radians();
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [bond_length, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [
+                    bond_length * bond_angle_rad.cos(),
+                    bond_length * bond_angle_rad.sin(),
+                    0.0,
+                ],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+
+        assert_eq!(result.iterations, 1);
+        assert_relative_eq!(result.charges.iter().sum::<f64>(), 0.0, epsilon = 1e-9);
+        assert_relative_eq!(result.charges[1], result.charges[2], epsilon = 1e-9);
     }
 }

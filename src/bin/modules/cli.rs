@@ -94,6 +94,18 @@ pub struct SolverOptions {
     /// Multiplier for the orbital screening strength in Coulomb calculations.
     #[arg(long, default_value_t = 0.5)]
     pub lambda_scale: f64,
+
+    /// Enable nonlinear hydrogen hardness update each iteration.
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub hydrogen_scf: bool,
+
+    /// Hard cutoff radius (Å) for pair interactions. When unset, all pairs are included.
+    #[arg(long)]
+    pub cutoff: Option<f64>,
+
+    /// Extra hydrogen-focused inner iterations before each global solve (0 disables).
+    #[arg(long, default_value_t = 0)]
+    pub hydrogen_inner_iters: u32,
 }
 
 /// Output format for the calculation results.

@@ -20,6 +20,9 @@ pub fn run(args: Cli) -> Result<(), CliError> {
         tolerance: args.solver.tolerance,
         max_iterations: args.solver.max_iterations,
         lambda_scale: args.solver.lambda_scale,
+        hydrogen_scf: args.solver.hydrogen_scf,
+        cutoff_radius: args.solver.cutoff,
+        hydrogen_inner_iters: args.solver.hydrogen_inner_iters,
     };
     let solver = QEqSolver::new(&params).with_options(solver_options);
 
@@ -76,6 +79,9 @@ mod tests {
             tolerance: 1e-6,
             max_iterations: 50,
             lambda_scale: 0.5,
+            hydrogen_scf: true,
+            cutoff: None,
+            hydrogen_inner_iters: 0,
         }
     }
 

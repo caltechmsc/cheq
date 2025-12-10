@@ -86,6 +86,9 @@ Cheq exposes a single command with one positional argument and several option gr
 - `--tolerance <FLOAT>`: Convergence threshold for the RMS change in charges between iterations. Default: `1e-6`.
 - `--max-iterations <INT>`: Maximum number of solver iterations before aborting. Default: `100`.
 - `--lambda-scale <FLOAT>`: Multiplier applied to the screening length in the Coulomb operator. Default: `0.5`.
+- `--hydrogen-scf <BOOL>`: Enable (true) or disable (false) the hydrogen hardness self-consistency update each iteration. Default: `true`.
+- `--cutoff <FLOAT>`: Hard cutoff radius (Å) for pair interactions; when set, only pairs within the radius are included. Default: unset (uses all pairs).
+- `--hydrogen-inner-iters <INT>`: Extra hydrogen-focused inner iterations before each global solve; `0` disables. Default: `0`.
 
 #### General Arguments
 
@@ -178,16 +181,19 @@ cat trajectories/frame_050.xyz | \
 
 ## Argument Reference Table
 
-| CLI Argument (Short) | CLI Argument (Long) | Value Type | Default      | Description                                       |
-| :------------------- | :------------------ | :--------- | :----------- | :------------------------------------------------ |
-| _(positional)_       | `INPUT`             | File Path  | **Required** | XYZ file to process, or `-` for stdin.            |
-| `-o`                 | `--output`          | File Path  | stdout       | Destination for formatted results.                |
-| `-f`                 | `--format`          | Enum       | `pretty`     | Output style: `pretty`, `xyz`, `csv`, or `json`.  |
-| `-p`                 | `--precision`       | Integer    | `6`          | Decimal digits for floating-point values.         |
-| `-P`                 | `--params`          | File Path  | bundled set  | Optional TOML parameter file.                     |
-| `-q`                 | `--total-charge`    | Float      | `0.0`        | Target total charge applied during equilibration. |
-| _(none)_             | `--tolerance`       | Float      | `1e-6`       | RMS change threshold for solver convergence.      |
-| _(none)_             | `--max-iterations`  | Integer    | `100`        | Hard cap on solver iterations.                    |
-| _(none)_             | `--lambda-scale`    | Float      | `0.5`        | Screening length multiplier in Coulomb term.      |
-| `-h`                 | `--help`            | Flag       | (N/A)        | Display contextual help and exit.                 |
-| `-V`                 | `--version`         | Flag       | (N/A)        | Show version information and exit.                |
+| CLI Argument (Short) | CLI Argument (Long)      | Value Type | Default      | Description                                       |
+| :------------------- | :----------------------- | :--------- | :----------- | :------------------------------------------------ |
+| _(positional)_       | `INPUT`                  | File Path  | **Required** | XYZ file to process, or `-` for stdin.            |
+| `-o`                 | `--output`               | File Path  | stdout       | Destination for formatted results.                |
+| `-f`                 | `--format`               | Enum       | `pretty`     | Output style: `pretty`, `xyz`, `csv`, or `json`.  |
+| `-p`                 | `--precision`            | Integer    | `6`          | Decimal digits for floating-point values.         |
+| `-P`                 | `--params`               | File Path  | bundled set  | Optional TOML parameter file.                     |
+| `-q`                 | `--total-charge`         | Float      | `0.0`        | Target total charge applied during equilibration. |
+| _(none)_             | `--tolerance`            | Float      | `1e-6`       | RMS change threshold for solver convergence.      |
+| _(none)_             | `--max-iterations`       | Integer    | `100`        | Hard cap on solver iterations.                    |
+| _(none)_             | `--lambda-scale`         | Float      | `0.5`        | Screening length multiplier in Coulomb term.      |
+| _(none)_             | `--hydrogen-scf`         | Bool       | `true`       | Toggle hydrogen hardness self-consistency.        |
+| _(none)_             | `--cutoff`               | Float      | _(unset)_    | Hard cutoff radius (Å) for pair interactions.     |
+| _(none)_             | `--hydrogen-inner-iters` | Integer    | `0`          | Extra hydrogen-focused inner iterations.          |
+| `-h`                 | `--help`                 | Flag       | (N/A)        | Display contextual help and exit.                 |
+| `-V`                 | `--version`              | Flag       | (N/A)        | Show version information and exit.                |
