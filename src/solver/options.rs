@@ -33,7 +33,7 @@ pub struct SolverOptions {
 
     /// Whether to update hydrogen hardness each iteration (nonlinear SCF term).
     ///
-    /// When disabled, hydrogen uses a fixed hardness (lossless simplification). Enabled by default.
+    /// When disabled, hydrogen uses a fixed hardness (lossy simplification). Enabled by default.
     pub hydrogen_scf: bool,
 
     /// Optional hard cutoff radius (in Å) for pair interactions.
