@@ -11,6 +11,7 @@ The core mission of Cheq is to provide a reliable, predictable, and easy-to-inte
 - **Decoupled Architecture**: Agnostic to basic data structures via the flexible `AtomView` trait.
 - **Memory Safe & Fast**: Built in Rust with optimized linear algebra for high performance.
 - **Configurable Parameters**: Includes standard parameters with support for custom TOML-based sets.
+- **Lossy Optimization Knobs**: Optional hard cutoff radius and hydrogen inner iterations (off by default) trade exactness for speed on large systems.
 
 ## Getting Started
 
