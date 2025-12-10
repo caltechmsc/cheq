@@ -41,7 +41,7 @@ Add Cheq to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cheq = "0.2.0"
+cheq = "0.3.0"
 ```
 
 Then, you can use it in your Rust code as follows:
