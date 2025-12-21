@@ -7,4 +7,4 @@ mod implementation;
 mod options;
 
 pub use implementation::QEqSolver;
-pub use options::{BasisType, SolverOptions};
+pub use options::{BasisType, DampingStrategy, SolverOptions};
