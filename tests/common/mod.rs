@@ -22,7 +22,7 @@ pub fn run_group_test(
     println!("\nRunning Group Test: {}", group_name);
     println!("{:-<80}", "");
     println!(
-        "{:<20} | {:<10} | {:<10} | {:<10}",
+        "{:<25} | {:<10} | {:<10} | {:<10}",
         "Molecule", "Atom Idx", "Expected", "Calculated"
     );
 
@@ -31,7 +31,7 @@ pub fn run_group_test(
             Ok(res) => res,
             Err(e) => {
                 println!(
-                    "{:<20} | {:<10} | {:<10} | ERROR: {:?}",
+                    "{:<25} | {:<10} | {:<10} | ERROR: {:?}",
                     case.name, "-", "-", e
                 );
                 group_total_error += 100.0;
@@ -46,7 +46,7 @@ pub fn run_group_test(
             let error = (calculated_q - expected_q).abs();
 
             println!(
-                "{:<20} | {:<10} | {:<10.4} | {:<10.4} (Err: {:.4})",
+                "{:<25} | {:<10} | {:<10.4} | {:<10.4} (Err: {:.4})",
                 case.name, index, expected_q, calculated_q, error
             );
 
