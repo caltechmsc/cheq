@@ -7,7 +7,7 @@
 //! and `Parameters` for element-specific values, enabling decoupled and flexible molecular
 //! simulations.
 
-use super::options::{BasisType, SolverOptions};
+use super::options::{BasisType, DampingStrategy, SolverOptions};
 use crate::{
     error::CheqError,
     params::{ElementData, Parameters},
@@ -186,7 +186,7 @@ impl<'p> QEqSolver<'p> {
 
         if !hydrogen_scf {
             let (_, equilibrated_potential) =
-                self.run_single_solve(&invariant, &mut work_matrix, &mut charges, false)?;
+                self.run_single_solve(&invariant, &mut work_matrix, &mut charges, false, 1.0)?;
             return Ok(CalculationResult {
                 charges: charges.as_ref().iter().cloned().collect(),
                 equilibrated_potential,
@@ -195,14 +195,26 @@ impl<'p> QEqSolver<'p> {
         }
 
         let mut max_charge_delta = 0.0;
+        let mut prev_delta = f64::MAX;
+
+        let mut current_damping = match self.options.damping {
+            DampingStrategy::None => 1.0,
+            DampingStrategy::Fixed(d) => d,
+            DampingStrategy::Auto { initial } => initial,
+        };
 
         for iteration in 1..=self.options.max_iterations {
             if iteration > 1 {
                 work_matrix.copy_from(&invariant.base_matrix);
             }
 
-            let (delta, equilibrated_potential) =
-                self.run_single_solve(&invariant, &mut work_matrix, &mut charges, true)?;
+            let (delta, equilibrated_potential) = self.run_single_solve(
+                &invariant,
+                &mut work_matrix,
+                &mut charges,
+                true,
+                current_damping,
+            )?;
 
             max_charge_delta = delta;
 
@@ -213,6 +225,20 @@ impl<'p> QEqSolver<'p> {
                     iterations: iteration,
                 });
             }
+
+            if let DampingStrategy::Auto { initial: _ } = self.options.damping {
+                if max_charge_delta > prev_delta {
+                    current_damping *= 0.5;
+                } else if max_charge_delta < prev_delta * 0.9 {
+                    current_damping = (current_damping * 1.1).min(1.0);
+                }
+
+                if current_damping < 0.001 {
+                    current_damping = 0.001;
+                }
+            }
+
+            prev_delta = max_charge_delta;
         }
 
         Err(CheqError::NotConverged {
@@ -349,6 +375,7 @@ impl<'p> QEqSolver<'p> {
         work_matrix: &mut Mat<f64>,
         charges: &mut Col<f64>,
         hydrogen_scf: bool,
+        damping: f64,
     ) -> Result<(f64, f64), CheqError> {
         let n_atoms = charges.nrows();
 
@@ -381,7 +408,9 @@ impl<'p> QEqSolver<'p> {
             .map(|(new, old): (&f64, &f64)| (*new - *old).abs())
             .fold(0.0, f64::max);
 
-        charges.as_mut().copy_from(&new_charges);
+        for i in 0..n_atoms {
+            charges[i] = (1.0 - damping) * charges[i] + damping * new_charges[i];
+        }
 
         let equilibrated_potential = solution[n_atoms];
 
