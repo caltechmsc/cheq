@@ -21,6 +21,29 @@ pub enum BasisType {
     Sto,
 }
 
+/// Strategy for damping charge updates during SCF iterations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DampingStrategy {
+    /// No damping is applied (equivalent to damping = 1.0).
+    ///
+    /// Fastest convergence for simple, well-behaved systems, but prone to oscillation
+    /// or divergence in complex cases (e.g., LiH, large systems).
+    None,
+
+    /// A fixed damping factor (0.0 < d <= 1.0).
+    ///
+    /// A constant mixing rate. Lower values (e.g., 0.1) are more stable but slower.
+    /// Higher values (e.g., 0.8) are faster but risk instability.
+    Fixed(f64),
+
+    /// Automatically adjusts damping based on convergence behavior.
+    ///
+    /// Starts with an initial value. If the error increases (divergence), it reduces damping (brakes).
+    /// If the error decreases significantly (convergence), it increases damping (accelerates).
+    /// This is the recommended strategy for general use.
+    Auto { initial: f64 },
+}
+
 /// Configuration parameters for the charge equilibration solver.
 ///
 /// This struct encapsulates the numerical settings that control the iterative solution process
@@ -57,6 +80,11 @@ pub struct SolverOptions {
     ///
     /// Defaults to `BasisType::Sto` (Slater-Type Orbitals) for maximum accuracy.
     pub basis_type: BasisType,
+
+    /// The damping strategy for the SCF iteration.
+    ///
+    /// Controls how charge updates are mixed between iterations to ensure convergence.
+    pub damping: DampingStrategy,
 }
 
 impl Default for SolverOptions {
@@ -67,6 +95,7 @@ impl Default for SolverOptions {
             lambda_scale: 0.5,
             hydrogen_scf: true,
             basis_type: BasisType::default(),
+            damping: DampingStrategy::Auto { initial: 0.4 },
         }
     }
 }
