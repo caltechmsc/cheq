@@ -518,19 +518,19 @@ mod tests {
     fn test_convergence_failure() {
         let params = get_default_parameters();
         let options = SolverOptions {
-            max_iterations: 0,
+            max_iterations: 1,
             ..SolverOptions::default()
         };
         let solver = QEqSolver::new(params).with_options(options);
 
         let atoms = vec![
             Atom {
-                atomic_number: 1,
+                atomic_number: 3,
                 position: [0.0, 0.0, 0.0],
             },
             Atom {
                 atomic_number: 1,
-                position: [0.74, 0.0, 0.0],
+                position: [1.595, 0.0, 0.0],
             },
         ];
 
