@@ -181,5 +181,5 @@ fn test_alkali_halides_group() {
         },
     ];
 
-    run_group_test("Alkali Halides & Others", cases, 0.01, 0.2);
+    run_group_test("Alkali Halides & Others", cases, 0.01, 0.20);
 }
