@@ -27,7 +27,19 @@ pub fn run_group_test(
     );
 
     for case in cases {
-        let result = solver.solve(&case.atoms, 0.0).expect("Solver failed");
+        let result = match solver.solve(&case.atoms, 0.0) {
+            Ok(res) => res,
+            Err(e) => {
+                println!(
+                    "{:<20} | {:<10} | {:<10} | ERROR: {:?}",
+                    case.name, "-", "-", e
+                );
+                group_total_error += 100.0;
+                group_max_error = 100.0;
+                total_data_points += 1;
+                continue;
+            }
+        };
 
         for (index, expected_q) in &case.expected {
             let calculated_q = result.charges[*index];
