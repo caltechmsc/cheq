@@ -395,3 +395,117 @@ struct InvariantSystem {
     rhs: Col<f64>,
     hydrogen_meta: Vec<(usize, f64)>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{get_default_parameters, types::Atom};
+    use approx::assert_relative_eq;
+
+    #[test]
+    fn test_h2_molecule_symmetry() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.74, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+
+        assert_relative_eq!(result.charges[0], 0.0, epsilon = 1e-6);
+        assert_relative_eq!(result.charges[1], 0.0, epsilon = 1e-6);
+        assert_relative_eq!(result.charges[0], result.charges[1], epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_hf_molecule_polarity() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0).unwrap();
+
+        assert!(result.charges[0] > 0.0);
+        assert!(result.charges[1] < 0.0);
+
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_water_molecule_sto_vs_gto() {
+        let params = get_default_parameters();
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 8,
+                position: [0.000000, 0.000000, 0.117300],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.000000, 0.757200, -0.469200],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.000000, -0.757200, -0.469200],
+            },
+        ];
+
+        let solver_sto = QEqSolver::new(params);
+        let res_sto = solver_sto.solve(&atoms, 0.0).unwrap();
+
+        assert!(res_sto.charges[0] < -0.1);
+        assert!(res_sto.charges[1] > 0.05);
+        assert_relative_eq!(res_sto.charges[1], res_sto.charges[2], epsilon = 1e-6);
+
+        let options_gto = SolverOptions {
+            basis_type: BasisType::Gto,
+            ..SolverOptions::default()
+        };
+        let solver_gto = QEqSolver::new(params).with_options(options_gto);
+        let res_gto = solver_gto.solve(&atoms, 0.0).unwrap();
+
+        assert_relative_eq!(res_sto.charges[0], res_gto.charges[0], epsilon = 0.3);
+    }
+
+    #[test]
+    fn test_convergence_failure() {
+        let params = get_default_parameters();
+        let options = SolverOptions {
+            max_iterations: 0,
+            ..SolverOptions::default()
+        };
+        let solver = QEqSolver::new(params).with_options(options);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.74, 0.0, 0.0],
+            },
+        ];
+
+        let result = solver.solve(&atoms, 0.0);
+        assert!(matches!(result, Err(CheqError::NotConverged { .. })));
+    }
+}
