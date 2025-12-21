@@ -354,8 +354,8 @@ impl<'p> QEqSolver<'p> {
 
         if hydrogen_scf {
             for &(idx, hardness) in &invariant.hydrogen_meta {
-                work_matrix[(idx, idx)] =
-                    hardness * (1.0 + charges[idx] * H_CHARGE_DEPENDENCE_FACTOR);
+                let q_clamped = charges[idx].clamp(-0.95, 0.95);
+                work_matrix[(idx, idx)] = hardness * (1.0 + q_clamped * H_CHARGE_DEPENDENCE_FACTOR);
             }
         }
 
