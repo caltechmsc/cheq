@@ -4,6 +4,23 @@
 //! criteria, iteration limits, and screening parameters for the QEq algorithm. These options
 //! control the trade-off between computational cost and solution accuracy.
 
+/// Specifies the type of basis functions used for Coulomb integrals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BasisType {
+    /// Gaussian-Type Orbitals (GTO).
+    ///
+    /// Uses Gaussian approximations for Slater orbitals. This allows for fast analytical
+    /// integration but introduces a small approximation error.
+    Gto,
+
+    /// Slater-Type Orbitals (STO).
+    ///
+    /// Uses exact Slater orbitals. This is more accurate but computationally more expensive
+    /// as it requires evaluating complex analytical expansions.
+    #[default]
+    Sto,
+}
+
 /// Configuration parameters for the charge equilibration solver.
 ///
 /// This struct encapsulates the numerical settings that control the iterative solution process
@@ -36,29 +53,20 @@ pub struct SolverOptions {
     /// When disabled, hydrogen uses a fixed hardness (lossy simplification). Enabled by default.
     pub hydrogen_scf: bool,
 
-    /// Optional hard cutoff radius (in Å) for pair interactions.
+    /// The type of basis functions to use for Coulomb integrals.
     ///
-    /// If `None`, all pairs are included (lossless). If `Some(r)`, pairs beyond `r` are skipped
-    /// (lossy, hard cutoff).
-    pub cutoff_radius: Option<f64>,
-
-    /// Number of optional inner iterations focused on hydrogen before each global solve.
-    ///
-    /// Defaults to `0` (disabled, lossless). When greater than zero, performs extra hydrogen-focused
-    /// solves using the same tolerance, then finishes with a full constrained solve to restore total
-    /// charge conservation (lossy path).
-    pub hydrogen_inner_iters: u32,
+    /// Defaults to `BasisType::Sto` (Slater-Type Orbitals) for maximum accuracy.
+    pub basis_type: BasisType,
 }
 
 impl Default for SolverOptions {
     fn default() -> Self {
         Self {
             tolerance: 1.0e-6,
-            max_iterations: 100,
+            max_iterations: 2000,
             lambda_scale: 0.5,
             hydrogen_scf: true,
-            cutoff_radius: None,
-            hydrogen_inner_iters: 0,
+            basis_type: BasisType::default(),
         }
     }
 }
