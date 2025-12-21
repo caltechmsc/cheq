@@ -1,4 +1,5 @@
 mod common;
+
 use cheq::Atom;
 use common::{TestCase, run_group_test};
 
