@@ -80,17 +80,11 @@ fn get_fitting_coefficient(n: u8) -> f64 {
 /// Evaluates the Coulomb integral between two Gaussian charge distributions.
 #[inline]
 fn compute_screened_potential(r: f64, alpha1: f64, alpha2: f64) -> f64 {
-    let sum_alpha = alpha1 + alpha2;
-    if sum_alpha < 1e-10 {
-        return 0.0;
-    }
-
-    let alpha_eff = (alpha1 * alpha2) / sum_alpha;
+    let beta = (2.0 * alpha1 * alpha2 / (alpha1 + alpha2)).sqrt();
 
     if r > DISTANCE_THRESHOLD_BOHR {
-        let sqrt_alpha_eff = alpha_eff.sqrt();
-        erf(sqrt_alpha_eff * r) / r
+        erf(beta * r) / r
     } else {
-        2.0 * (alpha_eff / PI).sqrt()
+        2.0 * beta / PI.sqrt()
     }
 }
