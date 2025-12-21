@@ -61,6 +61,7 @@
 // Internal modules are private to enforce encapsulation.
 mod error;
 mod params;
+mod shielding;
 mod solver;
 mod types;
 
