@@ -1,7 +1,7 @@
-use super::cli::Cli;
+use super::cli::{Cli, CliBasisType, CliDampingStrategy};
 use super::error::CliError;
 use super::io;
-use cheq::{QEqSolver, SolverOptions, get_default_parameters};
+use cheq::{BasisType, DampingStrategy, QEqSolver, SolverOptions, get_default_parameters};
 use indicatif::{ProgressBar, ProgressStyle};
 use std::fs;
 
@@ -16,13 +16,26 @@ pub fn run(args: Cli) -> Result<(), CliError> {
         get_default_parameters().clone()
     };
 
+    let basis_type = match args.solver.basis {
+        CliBasisType::Sto => BasisType::Sto,
+        CliBasisType::Gto => BasisType::Gto,
+    };
+
+    let damping = match args.solver.damping {
+        CliDampingStrategy::Auto => DampingStrategy::Auto {
+            initial: args.solver.damping_factor,
+        },
+        CliDampingStrategy::Fixed => DampingStrategy::Fixed(args.solver.damping_factor),
+        CliDampingStrategy::None => DampingStrategy::None,
+    };
+
     let solver_options = SolverOptions {
         tolerance: args.solver.tolerance,
         max_iterations: args.solver.max_iterations,
         lambda_scale: args.solver.lambda_scale,
         hydrogen_scf: args.solver.hydrogen_scf,
-        cutoff_radius: args.solver.cutoff,
-        hydrogen_inner_iters: args.solver.hydrogen_inner_iters,
+        basis_type,
+        damping,
     };
     let solver = QEqSolver::new(&params).with_options(solver_options);
 
@@ -63,7 +76,10 @@ pub fn run(args: Cli) -> Result<(), CliError> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::cli::{CalculationOptions, OutputFormat, OutputOptions, SolverOptions};
+    use super::super::cli::{
+        CalculationOptions, CliBasisType, CliDampingStrategy, OutputFormat, OutputOptions,
+        SolverOptions,
+    };
     use super::super::error::CliError;
     use super::*;
     use std::fs;
@@ -80,8 +96,9 @@ mod tests {
             max_iterations: 50,
             lambda_scale: 0.5,
             hydrogen_scf: true,
-            cutoff: None,
-            hydrogen_inner_iters: 0,
+            basis: CliBasisType::Sto,
+            damping: CliDampingStrategy::Auto,
+            damping_factor: 0.4,
         }
     }
 
