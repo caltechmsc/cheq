@@ -1,6 +1,6 @@
 [package]
 name = "cheq"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Tony Kan <tonykan@caltech.edu>",
     "William A. Goddard III <wag@caltech.edu>",
