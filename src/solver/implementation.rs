@@ -141,6 +141,13 @@ impl<'p> QEqSolver<'p> {
     /// A `Result` containing `CalculationResult` with the computed charges and metadata on success,
     /// or a `CheqError` on failure.
     ///
+    /// # Errors
+    ///
+    /// * `CheqError::NoAtoms` - If the input atom list is empty.
+    /// * `CheqError::ParameterNotFound` - If an atom's parameters are missing.
+    /// * `CheqError::NotConverged` - If the SCF procedure fails to converge within the maximum iterations.
+    /// * `CheqError::LinalgError` - If the linear system solver encounters an error.
+    ///
     /// # Examples
     ///
     /// ```
