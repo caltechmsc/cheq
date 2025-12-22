@@ -11,13 +11,28 @@ The core mission of Cheq is to provide a reliable, predictable, and easy-to-inte
 - **Decoupled Architecture**: Agnostic to basic data structures via the flexible `AtomView` trait.
 - **Memory Safe & Fast**: Built in Rust with optimized linear algebra for high performance.
 - **Configurable Parameters**: Includes standard parameters with support for custom TOML-based sets.
-- **Lossy Optimization Knobs**: Optional hard cutoff radius and hydrogen inner iterations (off by default) trade exactness for speed on large systems.
+- **Exact STO Integrals**: Uses exact Slater-Type Orbital integrals for maximum accuracy (default), with optional GTO approximation.
+
+## Benchmarks
+
+Cheq's exact Slater-Type Orbital (STO) implementation delivers significantly higher accuracy compared to traditional Gaussian-Type Orbital (GTO) approximations used in other software like OpenBabel.
+
+| Category           | Cheq (STO) Error | Cheq (GTO) Error | OpenBabel Error |
+| ------------------ | ---------------- | ---------------- | --------------- |
+| Alkali Halides     | **0.0108**       | 0.1902           | 0.3258          |
+| Clusters           | **0.0403**       | 0.2567           | 0.8057          |
+| Hydrogen Molecules | **0.0329**       | 0.1178           | 0.6305          |
+| Polymers           | **0.0703**       | 0.1816           | 1.4796          |
+
+_Values represent the mean absolute error (MAE) in elementary charge units (e) compared to the reference values from Rappé & Goddard (1991)._
+
+See [BENCHMARKS.md](BENCHMARKS.md) for the full detailed breakdown.
 
 ## Getting Started
 
 Cheq ships as both a command-line tool for end users and a library crate for developers.
 
-### For CLI users
+### For CLI Users
 
 Install the binary from crates.io:
 
@@ -35,13 +50,13 @@ cheq water.xyz
 
 The `cheq` command accepts additional options for output formatting, solver tolerances, and custom parameter files. See the [CLI User Manual](USAGE.md) for the full reference and usage patterns.
 
-### For library developers
+### For Library Developers
 
 Add Cheq to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-cheq = "0.3.0"
+cheq = "0.4.0"
 ```
 
 Then, you can use it in your Rust code as follows:
@@ -96,6 +111,7 @@ fn main() {
 ## Tech Stack
 
 - **Core Language**: Rust
+- **STO Integrals**: [`sto-ns`](https://crates.io/crates/sto-ns)
 - **Linear Algebra**: `faer`
 - **Serialization**: `serde` & `toml`
 

@@ -99,13 +99,17 @@ pub struct SolverOptions {
     #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
     pub hydrogen_scf: bool,
 
-    /// Hard cutoff radius (Å) for pair interactions. When unset, all pairs are included.
-    #[arg(long)]
-    pub cutoff: Option<f64>,
+    /// Basis functions to use for Coulomb integrals.
+    #[arg(long, value_enum, default_value_t = CliBasisType::Sto)]
+    pub basis: CliBasisType,
 
-    /// Extra hydrogen-focused inner iterations before each global solve (0 disables).
-    #[arg(long, default_value_t = 0)]
-    pub hydrogen_inner_iters: u32,
+    /// Damping strategy for the SCF iteration.
+    #[arg(long, value_enum, default_value_t = CliDampingStrategy::Auto)]
+    pub damping: CliDampingStrategy,
+
+    /// Damping factor (0.0-1.0). Used as fixed value or initial value for auto damping.
+    #[arg(long, default_value_t = 0.4)]
+    pub damping_factor: f64,
 }
 
 /// Output format for the calculation results.
@@ -119,4 +123,24 @@ pub enum OutputFormat {
     Csv,
     /// JSON object containing atoms array and metadata.
     Json,
+}
+
+/// Basis function types for Coulomb integral calculations.
+#[derive(Clone, ValueEnum)]
+pub enum CliBasisType {
+    /// Slater-Type Orbitals (exact).
+    Sto,
+    /// Gaussian-Type Orbitals (approximate).
+    Gto,
+}
+
+/// Damping strategies for the SCF iteration.
+#[derive(Clone, ValueEnum)]
+pub enum CliDampingStrategy {
+    /// Auto-adjust damping based on convergence.
+    Auto,
+    /// Fixed damping factor.
+    Fixed,
+    /// No damping.
+    None,
 }

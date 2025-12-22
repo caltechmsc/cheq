@@ -60,8 +60,8 @@
 
 // Internal modules are private to enforce encapsulation.
 mod error;
-mod math;
 mod params;
+mod shielding;
 mod solver;
 mod types;
 
@@ -71,7 +71,7 @@ pub use self::error::CheqError;
 
 pub use self::types::{Atom, AtomView, CalculationResult};
 
-pub use self::solver::{QEqSolver, SolverOptions};
+pub use self::solver::{BasisType, DampingStrategy, QEqSolver, SolverOptions};
 
 pub use self::params::{ElementData, Parameters};
 

@@ -1,4 +1,4 @@
-//! This module defines fundamental physical and mathematical constants used throughout the cheq library.
+//! This module defines fundamental physical and mathematical constants used throughout the library.
 //!
 //! These constants are essential for unit conversions and numerical thresholds in charge equilibration
 //! calculations, ensuring consistent handling of atomic units, energy scales, and geometric tolerances.

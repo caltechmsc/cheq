@@ -1,6 +1,6 @@
 [package]
 name = "cheq"
-version = "0.3.0"
+version = "0.4.0"
 authors = [
     "Tony Kan <tonykan@caltech.edu>",
     "William A. Goddard III <wag@caltech.edu>",
@@ -22,9 +22,10 @@ readme = "README.md"
 [dependencies]
 rayon = "1.11.0"
 libm = "0.2.8"
+sto-ns = "0.1.1"
 faer = "0.23.2"
 thiserror = "2.0.17"
-toml = "0.9.7"
+toml = "0.9.8"
 serde = { version = "1.0.188", features = ["derive"] }
 clap = { version = "4.5.53", features = ["derive"], optional = true }
 prettytable-rs = { version = "0.10.0", optional = true }

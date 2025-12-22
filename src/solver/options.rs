@@ -4,6 +4,46 @@
 //! criteria, iteration limits, and screening parameters for the QEq algorithm. These options
 //! control the trade-off between computational cost and solution accuracy.
 
+/// Specifies the type of basis functions used for Coulomb integrals.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BasisType {
+    /// Gaussian-Type Orbitals (GTO).
+    ///
+    /// Uses Gaussian approximations for Slater orbitals. This allows for fast analytical
+    /// integration but introduces a small approximation error.
+    Gto,
+
+    /// Slater-Type Orbitals (STO).
+    ///
+    /// Uses exact Slater orbitals. This is more accurate but computationally more expensive
+    /// as it requires evaluating complex analytical expansions.
+    #[default]
+    Sto,
+}
+
+/// Strategy for damping charge updates during SCF iterations.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DampingStrategy {
+    /// No damping is applied (equivalent to damping = 1.0).
+    ///
+    /// Fastest convergence for simple, well-behaved systems, but prone to oscillation
+    /// or divergence in complex cases (e.g., LiH, large systems).
+    None,
+
+    /// A fixed damping factor (0.0 < d <= 1.0).
+    ///
+    /// A constant mixing rate. Lower values (e.g., 0.1) are more stable but slower.
+    /// Higher values (e.g., 0.8) are faster but risk instability.
+    Fixed(f64),
+
+    /// Automatically adjusts damping based on convergence behavior.
+    ///
+    /// Starts with an initial value. If the error increases (divergence), it reduces damping (brakes).
+    /// If the error decreases significantly (convergence), it increases damping (accelerates).
+    /// This is the recommended strategy for general use.
+    Auto { initial: f64 },
+}
+
 /// Configuration parameters for the charge equilibration solver.
 ///
 /// This struct encapsulates the numerical settings that control the iterative solution process
@@ -36,29 +76,26 @@ pub struct SolverOptions {
     /// When disabled, hydrogen uses a fixed hardness (lossy simplification). Enabled by default.
     pub hydrogen_scf: bool,
 
-    /// Optional hard cutoff radius (in Å) for pair interactions.
+    /// The type of basis functions to use for Coulomb integrals.
     ///
-    /// If `None`, all pairs are included (lossless). If `Some(r)`, pairs beyond `r` are skipped
-    /// (lossy, hard cutoff).
-    pub cutoff_radius: Option<f64>,
+    /// Defaults to `BasisType::Sto` (Slater-Type Orbitals) for maximum accuracy.
+    pub basis_type: BasisType,
 
-    /// Number of optional inner iterations focused on hydrogen before each global solve.
+    /// The damping strategy for the SCF iteration.
     ///
-    /// Defaults to `0` (disabled, lossless). When greater than zero, performs extra hydrogen-focused
-    /// solves using the same tolerance, then finishes with a full constrained solve to restore total
-    /// charge conservation (lossy path).
-    pub hydrogen_inner_iters: u32,
+    /// Controls how charge updates are mixed between iterations to ensure convergence.
+    pub damping: DampingStrategy,
 }
 
 impl Default for SolverOptions {
     fn default() -> Self {
         Self {
             tolerance: 1.0e-6,
-            max_iterations: 100,
+            max_iterations: 2000,
             lambda_scale: 0.5,
             hydrogen_scf: true,
-            cutoff_radius: None,
-            hydrogen_inner_iters: 0,
+            basis_type: BasisType::default(),
+            damping: DampingStrategy::Auto { initial: 0.4 },
         }
     }
 }
