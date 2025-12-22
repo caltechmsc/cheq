@@ -537,4 +537,94 @@ mod tests {
         let result = solver.solve(&atoms, 0.0);
         assert!(matches!(result, Err(CheqError::NotConverged { .. })));
     }
+
+    #[test]
+    fn test_error_no_atoms() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms: Vec<Atom> = vec![];
+        let result = solver.solve(&atoms, 0.0);
+
+        assert!(matches!(result, Err(CheqError::NoAtoms)));
+    }
+
+    #[test]
+    fn test_error_parameter_not_found() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![Atom {
+            atomic_number: 118,
+            position: [0.0, 0.0, 0.0],
+        }];
+        let result = solver.solve(&atoms, 0.0);
+
+        assert!(matches!(result, Err(CheqError::ParameterNotFound(118))));
+    }
+
+    #[test]
+    fn test_damping_strategies() {
+        let params = get_default_parameters();
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let options_fixed = SolverOptions {
+            damping: DampingStrategy::Fixed(0.5),
+            ..SolverOptions::default()
+        };
+        let solver_fixed = QEqSolver::new(params).with_options(options_fixed);
+        let result_fixed = solver_fixed.solve(&atoms, 0.0).unwrap();
+        assert!(result_fixed.charges[0] > 0.0);
+
+        let options_none = SolverOptions {
+            damping: DampingStrategy::None,
+            ..SolverOptions::default()
+        };
+        let solver_none = QEqSolver::new(params).with_options(options_none);
+        let result_none = solver_none.solve(&atoms, 0.0).unwrap();
+        assert!(result_none.charges[0] > 0.0);
+
+        assert_relative_eq!(
+            result_fixed.charges[0],
+            result_none.charges[0],
+            epsilon = 0.01
+        );
+    }
+
+    #[test]
+    fn test_basis_type_gto() {
+        let params = get_default_parameters();
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let options = SolverOptions {
+            basis_type: BasisType::Gto,
+            ..SolverOptions::default()
+        };
+        let solver = QEqSolver::new(params).with_options(options);
+        let result = solver.solve(&atoms, 0.0).unwrap();
+
+        assert!(result.charges[0] > 0.0);
+        assert!(result.charges[1] < 0.0);
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
 }
