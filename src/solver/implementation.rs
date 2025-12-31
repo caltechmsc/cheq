@@ -768,7 +768,7 @@ struct InvariantSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{get_default_parameters, types::Atom};
+    use crate::{PointCharge, get_default_parameters, types::Atom};
     use approx::assert_relative_eq;
 
     #[test]
@@ -965,6 +965,205 @@ mod tests {
 
         assert!(result.charges[0] > 0.0);
         assert!(result.charges[1] < 0.0);
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_empty_potential() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let result_standard = solver.solve(&atoms, 0.0).unwrap();
+        let result_with_field = solver
+            .solve_in_field(&atoms, 0.0, &ExternalPotential::new())
+            .unwrap();
+
+        assert_relative_eq!(
+            result_standard.charges[0],
+            result_with_field.charges[0],
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            result_standard.charges[1],
+            result_with_field.charges[1],
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_point_charge_polarization() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let result_vacuum = solver.solve(&atoms, 0.0).unwrap();
+
+        let external =
+            ExternalPotential::from_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.5)]);
+
+        let result_field = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert!(
+            result_field.charges[1] < result_vacuum.charges[1],
+            "O should be more negative with nearby positive charge"
+        );
+
+        assert_relative_eq!(
+            result_field.charges[0] + result_field.charges[1],
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_symmetric_charges() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [-0.37, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.37, 0.0, 0.0],
+            },
+        ];
+
+        let external = ExternalPotential::from_point_charges(vec![
+            PointCharge::new(8, [0.0, 3.0, 0.0], 0.5),
+            PointCharge::new(8, [0.0, -3.0, 0.0], 0.5),
+        ]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert_relative_eq!(result.charges[0], result.charges[1], epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_uniform_field() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let result_vacuum = solver.solve(&atoms, 0.0).unwrap();
+
+        let external = ExternalPotential::from_uniform_field([0.5, 0.0, 0.0]);
+        let result_field = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert!(
+            result_field.charges[0] < result_vacuum.charges[0],
+            "H should be more negative with field pushing electrons toward it"
+        );
+
+        assert_relative_eq!(
+            result_field.charges[0] + result_field.charges[1],
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_combined_sources() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let external = ExternalPotential::new()
+            .with_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.3)])
+            .with_uniform_field([0.1, 0.0, 0.0]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_error_missing_external_params() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![Atom {
+            atomic_number: 6,
+            position: [0.0, 0.0, 0.0],
+        }];
+
+        let external = ExternalPotential::from_point_charges(vec![PointCharge::new(
+            200,
+            [3.0, 0.0, 0.0],
+            0.5,
+        )]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external);
+        assert!(matches!(result, Err(CheqError::ParameterNotFound(200))));
+    }
+
+    #[test]
+    fn test_solve_in_field_gto_basis() {
+        let params = get_default_parameters();
+        let options = SolverOptions {
+            basis_type: BasisType::Gto,
+            ..SolverOptions::default()
+        };
+        let solver = QEqSolver::new(params).with_options(options);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let external =
+            ExternalPotential::from_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.5)]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
         assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
     }
 }
