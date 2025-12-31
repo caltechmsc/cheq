@@ -12,7 +12,7 @@ use crate::{
     error::CheqError,
     params::{ElementData, Parameters},
     shielding::{self, constants},
-    types::{AtomView, CalculationResult},
+    types::{AtomView, CalculationResult, ExternalPotential},
 };
 use faer::{Col, Mat, prelude::*};
 use rayon::prelude::*;
@@ -182,9 +182,99 @@ impl<'p> QEqSolver<'p> {
         }
 
         let element_data = self.fetch_element_data(atoms)?;
+        let invariant = self.build_invariant_system(atoms, &element_data, total_charge, None)?;
 
-        let invariant = self.build_invariant_system(atoms, &element_data, total_charge)?;
+        self.run_scf_iterations(n_atoms, invariant)
+    }
 
+    /// Solves the charge equilibration equations in the presence of an external electrostatic field.
+    ///
+    /// This method extends the standard QEq calculation to include the effect of an external
+    /// electrostatic environment on the charge distribution. The external potential modifies
+    /// the effective electronegativity of each atom, allowing the QEq subsystem to polarize
+    /// in response to its surroundings.
+    ///
+    /// # Arguments
+    ///
+    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
+    /// * `total_charge` - The desired total charge of the QEq subsystem.
+    /// * `external` - The external electrostatic potential acting on the system.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `CalculationResult` with the computed charges and metadata on success,
+    /// or a `CheqError` on failure.
+    ///
+    /// # Errors
+    ///
+    /// * `CheqError::NoAtoms` - If the input atom list is empty.
+    /// * `CheqError::ParameterNotFound` - If parameters are missing for any atom (QEq or external).
+    /// * `CheqError::NotConverged` - If the SCF procedure fails to converge.
+    /// * `CheqError::LinalgError` - If the linear system solver encounters an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::{get_default_parameters, QEqSolver, Atom, ExternalPotential, PointCharge};
+    ///
+    /// let params = get_default_parameters();
+    /// let solver = QEqSolver::new(params);
+    ///
+    /// // A simple diatomic molecule
+    /// let ligand = vec![
+    ///     Atom { atomic_number: 6, position: [0.0, 0.0, 0.0] },
+    ///     Atom { atomic_number: 8, position: [1.2, 0.0, 0.0] },
+    /// ];
+    ///
+    /// // An external positive charge nearby
+    /// let external = ExternalPotential::from_point_charges(vec![
+    ///     PointCharge::new(7, [3.0, 0.0, 0.0], 0.5),
+    /// ]);
+    ///
+    /// let result = solver.solve_in_field(&ligand, 0.0, &external).unwrap();
+    ///
+    /// // The oxygen should become more negative due to the nearby positive charge
+    /// println!("C charge: {:.4}, O charge: {:.4}", result.charges[0], result.charges[1]);
+    /// ```
+    pub fn solve_in_field<A: AtomView>(
+        &self,
+        atoms: &[A],
+        total_charge: f64,
+        external: &ExternalPotential,
+    ) -> Result<CalculationResult, CheqError> {
+        if external.is_empty() {
+            return self.solve(atoms, total_charge);
+        }
+
+        let n_atoms = atoms.len();
+        if n_atoms == 0 {
+            return Err(CheqError::NoAtoms);
+        }
+
+        let element_data = self.fetch_element_data(atoms)?;
+
+        let external_potential = self.compute_external_potential(atoms, &element_data, external)?;
+
+        let invariant = self.build_invariant_system(
+            atoms,
+            &element_data,
+            total_charge,
+            Some(&external_potential),
+        )?;
+
+        self.run_scf_iterations(n_atoms, invariant)
+    }
+
+    /// Executes the SCF iterative procedure on a pre-built invariant system.
+    ///
+    /// This is the core solving routine shared by `solve` and `solve_in_field`.
+    /// It handles both the single-shot (non-hydrogen SCF) and iterative (hydrogen SCF)
+    /// cases, applying the configured damping strategy for convergence.
+    fn run_scf_iterations(
+        &self,
+        n_atoms: usize,
+        invariant: InvariantSystem,
+    ) -> Result<CalculationResult, CheqError> {
         let mut charges = Col::zeros(n_atoms);
         let has_hydrogen = !invariant.hydrogen_meta.is_empty();
         let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
@@ -271,6 +361,91 @@ impl<'p> QEqSolver<'p> {
             .collect()
     }
 
+    /// Computes the external electrostatic potential at each QEq atom position.
+    ///
+    /// This method calculates the contribution of external point charges and uniform fields
+    /// to the effective electronegativity of each atom in the QEq system. The screened Coulomb
+    /// formalism is used for point charges to ensure physical behavior at short distances.
+    fn compute_external_potential<A: AtomView>(
+        &self,
+        atoms: &[A],
+        element_data: &[&'p ElementData],
+        external: &ExternalPotential,
+    ) -> Result<Vec<f64>, CheqError> {
+        let n_atoms = atoms.len();
+        let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
+
+        let external_element_data: Vec<&ElementData> = external
+            .point_charges()
+            .iter()
+            .map(|pc| {
+                self.parameters
+                    .elements
+                    .get(&pc.atomic_number)
+                    .ok_or(CheqError::ParameterNotFound(pc.atomic_number))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let lambda = self.options.lambda_scale;
+        let basis_type = self.options.basis_type;
+        let uniform_field = external.uniform_field();
+
+        let potentials: Vec<f64> = (0..n_atoms)
+            .into_par_iter()
+            .map(|i| {
+                let data_i = element_data[i];
+                let pos_i = positions[i];
+                let radius_i_bohr = data_i.radius / constants::BOHR_TO_ANGSTROM;
+
+                let mut v_ext = 0.0;
+
+                for (pc, data_ext) in external
+                    .point_charges()
+                    .iter()
+                    .zip(external_element_data.iter())
+                {
+                    let diff_sq = (pos_i[0] - pc.position[0]).powi(2)
+                        + (pos_i[1] - pc.position[1]).powi(2)
+                        + (pos_i[2] - pc.position[2]).powi(2);
+
+                    let dist_angstrom = diff_sq.sqrt();
+                    let dist_bohr = dist_angstrom / constants::BOHR_TO_ANGSTROM;
+                    let radius_ext_bohr = data_ext.radius / constants::BOHR_TO_ANGSTROM;
+
+                    let integral_hartree = match basis_type {
+                        BasisType::Gto => shielding::gto::calculate_integral(
+                            dist_bohr,
+                            data_i.principal_quantum_number,
+                            radius_i_bohr,
+                            data_ext.principal_quantum_number,
+                            radius_ext_bohr,
+                            lambda,
+                        ),
+                        BasisType::Sto => shielding::sto::calculate_integral(
+                            dist_bohr,
+                            data_i.principal_quantum_number,
+                            radius_i_bohr,
+                            data_ext.principal_quantum_number,
+                            radius_ext_bohr,
+                            lambda,
+                        ),
+                    };
+
+                    let j_ev = integral_hartree * constants::HARTREE_TO_EV;
+                    v_ext += pc.charge * j_ev;
+                }
+
+                v_ext -= uniform_field[0] * pos_i[0]
+                    + uniform_field[1] * pos_i[1]
+                    + uniform_field[2] * pos_i[2];
+
+                v_ext
+            })
+            .collect();
+
+        Ok(potentials)
+    }
+
     /// Precomputes the geometry-invariant parts of the linear system.
     ///
     /// Builds the base coefficient matrix (diagonal hardness, screened Coulomb off-diagonals,
@@ -281,6 +456,7 @@ impl<'p> QEqSolver<'p> {
         atoms: &[A],
         element_data: &[&'p ElementData],
         total_charge: f64,
+        external_potential: Option<&[f64]>,
     ) -> Result<InvariantSystem, CheqError> {
         let n_atoms = atoms.len();
         let matrix_size = n_atoms + 1;
@@ -292,7 +468,9 @@ impl<'p> QEqSolver<'p> {
         for i in 0..n_atoms {
             let data_i = element_data[i];
             base_matrix[(i, i)] = data_i.hardness;
-            rhs[i] = -data_i.electronegativity;
+
+            let v_ext = external_potential.map_or(0.0, |v| v[i]);
+            rhs[i] = -(data_i.electronegativity + v_ext);
 
             if data_i.principal_quantum_number == 1 {
                 hydrogen_meta.push((i, data_i.hardness));
@@ -435,7 +613,7 @@ struct InvariantSystem {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{get_default_parameters, types::Atom};
+    use crate::{PointCharge, get_default_parameters, types::Atom};
     use approx::assert_relative_eq;
 
     #[test]
@@ -632,6 +810,205 @@ mod tests {
 
         assert!(result.charges[0] > 0.0);
         assert!(result.charges[1] < 0.0);
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_empty_potential() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let result_standard = solver.solve(&atoms, 0.0).unwrap();
+        let result_with_field = solver
+            .solve_in_field(&atoms, 0.0, &ExternalPotential::new())
+            .unwrap();
+
+        assert_relative_eq!(
+            result_standard.charges[0],
+            result_with_field.charges[0],
+            epsilon = 1e-10
+        );
+        assert_relative_eq!(
+            result_standard.charges[1],
+            result_with_field.charges[1],
+            epsilon = 1e-10
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_point_charge_polarization() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let result_vacuum = solver.solve(&atoms, 0.0).unwrap();
+
+        let external =
+            ExternalPotential::from_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.5)]);
+
+        let result_field = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert!(
+            result_field.charges[1] < result_vacuum.charges[1],
+            "O should be more negative with nearby positive charge"
+        );
+
+        assert_relative_eq!(
+            result_field.charges[0] + result_field.charges[1],
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_symmetric_charges() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [-0.37, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 1,
+                position: [0.37, 0.0, 0.0],
+            },
+        ];
+
+        let external = ExternalPotential::from_point_charges(vec![
+            PointCharge::new(8, [0.0, 3.0, 0.0], 0.5),
+            PointCharge::new(8, [0.0, -3.0, 0.0], 0.5),
+        ]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert_relative_eq!(result.charges[0], result.charges[1], epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_uniform_field() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 1,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 9,
+                position: [0.917, 0.0, 0.0],
+            },
+        ];
+
+        let result_vacuum = solver.solve(&atoms, 0.0).unwrap();
+
+        let external = ExternalPotential::from_uniform_field([0.5, 0.0, 0.0]);
+        let result_field = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert!(
+            result_field.charges[0] < result_vacuum.charges[0],
+            "H should be more negative with field pushing electrons toward it"
+        );
+
+        assert_relative_eq!(
+            result_field.charges[0] + result_field.charges[1],
+            0.0,
+            epsilon = 1e-6
+        );
+    }
+
+    #[test]
+    fn test_solve_in_field_combined_sources() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let external = ExternalPotential::new()
+            .with_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.3)])
+            .with_uniform_field([0.1, 0.0, 0.0]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
+
+        assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_solve_in_field_error_missing_external_params() {
+        let params = get_default_parameters();
+        let solver = QEqSolver::new(params);
+
+        let atoms = vec![Atom {
+            atomic_number: 6,
+            position: [0.0, 0.0, 0.0],
+        }];
+
+        let external = ExternalPotential::from_point_charges(vec![PointCharge::new(
+            200,
+            [3.0, 0.0, 0.0],
+            0.5,
+        )]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external);
+        assert!(matches!(result, Err(CheqError::ParameterNotFound(200))));
+    }
+
+    #[test]
+    fn test_solve_in_field_gto_basis() {
+        let params = get_default_parameters();
+        let options = SolverOptions {
+            basis_type: BasisType::Gto,
+            ..SolverOptions::default()
+        };
+        let solver = QEqSolver::new(params).with_options(options);
+
+        let atoms = vec![
+            Atom {
+                atomic_number: 6,
+                position: [0.0, 0.0, 0.0],
+            },
+            Atom {
+                atomic_number: 8,
+                position: [1.2, 0.0, 0.0],
+            },
+        ];
+
+        let external =
+            ExternalPotential::from_point_charges(vec![PointCharge::new(7, [3.0, 0.0, 0.0], 0.5)]);
+
+        let result = solver.solve_in_field(&atoms, 0.0, &external).unwrap();
         assert_relative_eq!(result.charges[0] + result.charges[1], 0.0, epsilon = 1e-6);
     }
 }

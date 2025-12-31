@@ -57,6 +57,34 @@
 //! assert_relative_eq!(q_o + 2.0 * q_h1, 0.0, epsilon = 1e-9); // Charge conservation
 //! println!("Charges (O, H1, H2): ({:.3}, {:.3}, {:.3})", q_o, q_h1, result.charges[2]);
 //! ```
+//!
+//! # External Electrostatic Fields
+//!
+//! Cheq supports hybrid QEq/MM calculations where a molecular fragment (e.g., a ligand)
+//! undergoes charge equilibration in the presence of an external electrostatic environment
+//! (e.g., a protein binding pocket). This is achieved using [`ExternalPotential`]:
+//!
+//! ```
+//! use cheq::{get_default_parameters, QEqSolver, Atom, ExternalPotential, PointCharge};
+//!
+//! let params = get_default_parameters();
+//! let solver = QEqSolver::new(params);
+//!
+//! // Define the QEq subsystem (e.g., a ligand).
+//! let ligand = vec![
+//!     Atom { atomic_number: 6, position: [0.0, 0.0, 0.0] },
+//!     Atom { atomic_number: 8, position: [1.2, 0.0, 0.0] },
+//! ];
+//!
+//! // Define the external environment (e.g., protein pocket atoms with force field charges).
+//! let external = ExternalPotential::from_point_charges(vec![
+//!     PointCharge::new(7, [3.0, 0.0, 0.0], -0.42),   // Backbone nitrogen
+//!     PointCharge::new(8, [4.0, 1.0, 0.0], -0.57),   // Carbonyl oxygen
+//! ]);
+//!
+//! // Solve with external field.
+//! let result = solver.solve_in_field(&ligand, 0.0, &external).unwrap();
+//! ```
 
 // Internal modules are private to enforce encapsulation.
 mod error;
@@ -69,7 +97,7 @@ mod types;
 
 pub use self::error::CheqError;
 
-pub use self::types::{Atom, AtomView, CalculationResult};
+pub use self::types::{Atom, AtomView, CalculationResult, ExternalPotential, PointCharge};
 
 pub use self::solver::{BasisType, DampingStrategy, QEqSolver, SolverOptions};
 
