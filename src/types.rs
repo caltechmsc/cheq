@@ -143,7 +143,7 @@ pub struct ExternalPotential {
     /// A uniform external electric field applied to the system (V/Å).
     ///
     /// The field is represented as a 3D vector `[Ex, Ey, Ez]`. The electrostatic potential
-    /// The electrostatic potential contribution at position `r` is `V = -E · r` (dot product).
+    /// contribution at position `r` is `V = -E · r` (dot product).
     uniform_field: [f64; 3],
 }
 
