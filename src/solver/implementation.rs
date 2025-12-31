@@ -182,76 +182,9 @@ impl<'p> QEqSolver<'p> {
         }
 
         let element_data = self.fetch_element_data(atoms)?;
+        let invariant = self.build_invariant_system(atoms, &element_data, total_charge, None)?;
 
-        let invariant = self.build_invariant_system(atoms, &element_data, total_charge)?;
-
-        let mut charges = Col::zeros(n_atoms);
-        let has_hydrogen = !invariant.hydrogen_meta.is_empty();
-        let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
-
-        let mut work_matrix = invariant.base_matrix.clone();
-
-        if !hydrogen_scf {
-            let (_, equilibrated_potential) =
-                self.run_single_solve(&invariant, &mut work_matrix, &mut charges, false, 1.0)?;
-            return Ok(CalculationResult {
-                charges: charges.as_ref().iter().cloned().collect(),
-                equilibrated_potential,
-                iterations: 1,
-            });
-        }
-
-        let mut max_charge_delta = 0.0;
-        let mut prev_delta = f64::MAX;
-
-        let mut current_damping = match self.options.damping {
-            DampingStrategy::None => 1.0,
-            DampingStrategy::Fixed(d) => d,
-            DampingStrategy::Auto { initial } => initial,
-        };
-
-        for iteration in 1..=self.options.max_iterations {
-            if iteration > 1 {
-                work_matrix.copy_from(&invariant.base_matrix);
-            }
-
-            let (delta, equilibrated_potential) = self.run_single_solve(
-                &invariant,
-                &mut work_matrix,
-                &mut charges,
-                true,
-                current_damping,
-            )?;
-
-            max_charge_delta = delta;
-
-            if max_charge_delta < self.options.tolerance {
-                return Ok(CalculationResult {
-                    charges: charges.as_ref().iter().cloned().collect(),
-                    equilibrated_potential,
-                    iterations: iteration,
-                });
-            }
-
-            if let DampingStrategy::Auto { initial: _ } = self.options.damping {
-                if max_charge_delta > prev_delta {
-                    current_damping *= 0.5;
-                } else if max_charge_delta < prev_delta * 0.9 {
-                    current_damping = (current_damping * 1.1).min(1.0);
-                }
-
-                if current_damping < 0.001 {
-                    current_damping = 0.001;
-                }
-            }
-
-            prev_delta = max_charge_delta;
-        }
-
-        Err(CheqError::NotConverged {
-            max_iterations: self.options.max_iterations,
-            delta: max_charge_delta,
-        })
+        self.run_scf_iterations(n_atoms, invariant)
     }
 
     /// Solves the charge equilibration equations in the presence of an external electrostatic field.
@@ -322,13 +255,26 @@ impl<'p> QEqSolver<'p> {
 
         let external_potential = self.compute_external_potential(atoms, &element_data, external)?;
 
-        let invariant = self.build_invariant_system_with_field(
+        let invariant = self.build_invariant_system(
             atoms,
             &element_data,
             total_charge,
-            &external_potential,
+            Some(&external_potential),
         )?;
 
+        self.run_scf_iterations(n_atoms, invariant)
+    }
+
+    /// Executes the SCF iterative procedure on a pre-built invariant system.
+    ///
+    /// This is the core solving routine shared by `solve` and `solve_in_field`.
+    /// It handles both the single-shot (non-hydrogen SCF) and iterative (hydrogen SCF)
+    /// cases, applying the configured damping strategy for convergence.
+    fn run_scf_iterations(
+        &self,
+        n_atoms: usize,
+        invariant: InvariantSystem,
+    ) -> Result<CalculationResult, CheqError> {
         let mut charges = Col::zeros(n_atoms);
         let has_hydrogen = !invariant.hydrogen_meta.is_empty();
         let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
@@ -500,110 +446,6 @@ impl<'p> QEqSolver<'p> {
         Ok(potentials)
     }
 
-    /// Builds the invariant system with external potential contributions.
-    ///
-    /// This is analogous to `build_invariant_system` but incorporates the pre-computed
-    /// external potential into the RHS vector.
-    fn build_invariant_system_with_field<A: AtomView>(
-        &self,
-        atoms: &[A],
-        element_data: &[&'p ElementData],
-        total_charge: f64,
-        external_potential: &[f64],
-    ) -> Result<InvariantSystem, CheqError> {
-        let n_atoms = atoms.len();
-        let matrix_size = n_atoms + 1;
-
-        let mut base_matrix = Mat::zeros(matrix_size, matrix_size);
-        let mut rhs = Col::zeros(matrix_size);
-        let mut hydrogen_meta = Vec::new();
-
-        for i in 0..n_atoms {
-            let data_i = element_data[i];
-            base_matrix[(i, i)] = data_i.hardness;
-            rhs[i] = -(data_i.electronegativity + external_potential[i]);
-
-            if data_i.principal_quantum_number == 1 {
-                hydrogen_meta.push((i, data_i.hardness));
-            }
-        }
-
-        let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
-
-        let mat_view = UnsafeMatView {
-            ptr: base_matrix.as_ptr_mut(),
-            row_stride: base_matrix.row_stride(),
-            col_stride: base_matrix.col_stride(),
-        };
-
-        let lambda = self.options.lambda_scale;
-        let basis_type = self.options.basis_type;
-
-        (0..n_atoms).into_par_iter().for_each(|i| {
-            let data_i = element_data[i];
-            let pos_i = positions[i];
-            let radius_i_bohr = data_i.radius / constants::BOHR_TO_ANGSTROM;
-
-            for j in (i + 1)..n_atoms {
-                let pos_j = positions[j];
-                let diff_sq = (pos_i[0] - pos_j[0]).powi(2)
-                    + (pos_i[1] - pos_j[1]).powi(2)
-                    + (pos_i[2] - pos_j[2]).powi(2);
-
-                let dist_angstrom = diff_sq.sqrt();
-                let dist_bohr = dist_angstrom / constants::BOHR_TO_ANGSTROM;
-
-                let data_j = element_data[j];
-                let radius_j_bohr = data_j.radius / constants::BOHR_TO_ANGSTROM;
-
-                let integral_hartree = match basis_type {
-                    BasisType::Gto => shielding::gto::calculate_integral(
-                        dist_bohr,
-                        data_i.principal_quantum_number,
-                        radius_i_bohr,
-                        data_j.principal_quantum_number,
-                        radius_j_bohr,
-                        lambda,
-                    ),
-                    BasisType::Sto => shielding::sto::calculate_integral(
-                        dist_bohr,
-                        data_i.principal_quantum_number,
-                        radius_i_bohr,
-                        data_j.principal_quantum_number,
-                        radius_j_bohr,
-                        lambda,
-                    ),
-                };
-
-                let val_ev = integral_hartree * constants::HARTREE_TO_EV;
-
-                // SAFETY: Each unordered pair (i, j) with i < j is handled only by the thread for i.
-                // That thread writes (i, j) and (j, i), so no two threads write the same entries.
-                unsafe {
-                    mat_view.write(i, j, val_ev);
-                    mat_view.write(j, i, val_ev);
-                }
-            }
-        });
-
-        base_matrix
-            .col_mut(matrix_size - 1)
-            .subrows_mut(0, n_atoms)
-            .fill(1.0);
-        base_matrix
-            .row_mut(matrix_size - 1)
-            .subcols_mut(0, n_atoms)
-            .fill(1.0);
-
-        rhs[matrix_size - 1] = total_charge;
-
-        Ok(InvariantSystem {
-            base_matrix,
-            rhs,
-            hydrogen_meta,
-        })
-    }
-
     /// Precomputes the geometry-invariant parts of the linear system.
     ///
     /// Builds the base coefficient matrix (diagonal hardness, screened Coulomb off-diagonals,
@@ -614,6 +456,7 @@ impl<'p> QEqSolver<'p> {
         atoms: &[A],
         element_data: &[&'p ElementData],
         total_charge: f64,
+        external_potential: Option<&[f64]>,
     ) -> Result<InvariantSystem, CheqError> {
         let n_atoms = atoms.len();
         let matrix_size = n_atoms + 1;
@@ -625,7 +468,9 @@ impl<'p> QEqSolver<'p> {
         for i in 0..n_atoms {
             let data_i = element_data[i];
             base_matrix[(i, i)] = data_i.hardness;
-            rhs[i] = -data_i.electronegativity;
+
+            let v_ext = external_potential.map_or(0.0, |v| v[i]);
+            rhs[i] = -(data_i.electronegativity + v_ext);
 
             if data_i.principal_quantum_number == 1 {
                 hydrogen_meta.push((i, data_i.hardness));
