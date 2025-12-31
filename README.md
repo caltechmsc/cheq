@@ -12,6 +12,7 @@ The core mission of Cheq is to provide a reliable, predictable, and easy-to-inte
 - **Memory Safe & Fast**: Built in Rust with optimized linear algebra for high performance.
 - **Configurable Parameters**: Includes standard parameters with support for custom TOML-based sets.
 - **Exact STO Integrals**: Uses exact Slater-Type Orbital integrals for maximum accuracy (default), with optional GTO approximation.
+- **External Field Support**: Simulate electrostatic embedding with point charges and uniform electric fields.
 
 ## Benchmarks
 
