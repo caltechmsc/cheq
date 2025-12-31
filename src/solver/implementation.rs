@@ -12,7 +12,7 @@ use crate::{
     error::CheqError,
     params::{ElementData, Parameters},
     shielding::{self, constants},
-    types::{AtomView, CalculationResult},
+    types::{AtomView, CalculationResult, ExternalPotential},
 };
 use faer::{Col, Mat, prelude::*};
 use rayon::prelude::*;
@@ -254,6 +254,150 @@ impl<'p> QEqSolver<'p> {
         })
     }
 
+    /// Solves the charge equilibration equations in the presence of an external electrostatic field.
+    ///
+    /// This method extends the standard QEq calculation to include the effect of an external
+    /// electrostatic environment on the charge distribution. The external potential modifies
+    /// the effective electronegativity of each atom, allowing the QEq subsystem to polarize
+    /// in response to its surroundings.
+    ///
+    /// # Arguments
+    ///
+    /// * `atoms` - A slice of atom data implementing the `AtomView` trait.
+    /// * `total_charge` - The desired total charge of the QEq subsystem.
+    /// * `external` - The external electrostatic potential acting on the system.
+    ///
+    /// # Returns
+    ///
+    /// A `Result` containing `CalculationResult` with the computed charges and metadata on success,
+    /// or a `CheqError` on failure.
+    ///
+    /// # Errors
+    ///
+    /// * `CheqError::NoAtoms` - If the input atom list is empty.
+    /// * `CheqError::ParameterNotFound` - If parameters are missing for any atom (QEq or external).
+    /// * `CheqError::NotConverged` - If the SCF procedure fails to converge.
+    /// * `CheqError::LinalgError` - If the linear system solver encounters an error.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use cheq::{get_default_parameters, QEqSolver, Atom, ExternalPotential, PointCharge};
+    ///
+    /// let params = get_default_parameters();
+    /// let solver = QEqSolver::new(params);
+    ///
+    /// // A simple diatomic molecule
+    /// let ligand = vec![
+    ///     Atom { atomic_number: 6, position: [0.0, 0.0, 0.0] },
+    ///     Atom { atomic_number: 8, position: [1.2, 0.0, 0.0] },
+    /// ];
+    ///
+    /// // An external positive charge nearby
+    /// let external = ExternalPotential::from_point_charges(vec![
+    ///     PointCharge::new(7, [3.0, 0.0, 0.0], 0.5),
+    /// ]);
+    ///
+    /// let result = solver.solve_in_field(&ligand, 0.0, &external).unwrap();
+    ///
+    /// // The oxygen should become more negative due to the nearby positive charge
+    /// println!("C charge: {:.4}, O charge: {:.4}", result.charges[0], result.charges[1]);
+    /// ```
+    pub fn solve_in_field<A: AtomView>(
+        &self,
+        atoms: &[A],
+        total_charge: f64,
+        external: &ExternalPotential,
+    ) -> Result<CalculationResult, CheqError> {
+        if external.is_empty() {
+            return self.solve(atoms, total_charge);
+        }
+
+        let n_atoms = atoms.len();
+        if n_atoms == 0 {
+            return Err(CheqError::NoAtoms);
+        }
+
+        let element_data = self.fetch_element_data(atoms)?;
+
+        let external_potential = self.compute_external_potential(atoms, &element_data, external)?;
+
+        let invariant = self.build_invariant_system_with_field(
+            atoms,
+            &element_data,
+            total_charge,
+            &external_potential,
+        )?;
+
+        let mut charges = Col::zeros(n_atoms);
+        let has_hydrogen = !invariant.hydrogen_meta.is_empty();
+        let hydrogen_scf = self.options.hydrogen_scf && has_hydrogen;
+
+        let mut work_matrix = invariant.base_matrix.clone();
+
+        if !hydrogen_scf {
+            let (_, equilibrated_potential) =
+                self.run_single_solve(&invariant, &mut work_matrix, &mut charges, false, 1.0)?;
+            return Ok(CalculationResult {
+                charges: charges.as_ref().iter().cloned().collect(),
+                equilibrated_potential,
+                iterations: 1,
+            });
+        }
+
+        let mut max_charge_delta = 0.0;
+        let mut prev_delta = f64::MAX;
+
+        let mut current_damping = match self.options.damping {
+            DampingStrategy::None => 1.0,
+            DampingStrategy::Fixed(d) => d,
+            DampingStrategy::Auto { initial } => initial,
+        };
+
+        for iteration in 1..=self.options.max_iterations {
+            if iteration > 1 {
+                work_matrix.copy_from(&invariant.base_matrix);
+            }
+
+            let (delta, equilibrated_potential) = self.run_single_solve(
+                &invariant,
+                &mut work_matrix,
+                &mut charges,
+                true,
+                current_damping,
+            )?;
+
+            max_charge_delta = delta;
+
+            if max_charge_delta < self.options.tolerance {
+                return Ok(CalculationResult {
+                    charges: charges.as_ref().iter().cloned().collect(),
+                    equilibrated_potential,
+                    iterations: iteration,
+                });
+            }
+
+            if let DampingStrategy::Auto { initial: _ } = self.options.damping {
+                if max_charge_delta > prev_delta {
+                    current_damping *= 0.5;
+                } else if max_charge_delta < prev_delta * 0.9 {
+                    current_damping = (current_damping * 1.1).min(1.0);
+                }
+
+                if current_damping < 0.001 {
+                    current_damping = 0.001;
+                }
+            }
+
+            prev_delta = max_charge_delta;
+        }
+
+        Err(CheqError::NotConverged {
+            max_iterations: self.options.max_iterations,
+            delta: max_charge_delta,
+        })
+    }
+
     /// Retrieves element data for each atom from the parameters.
     fn fetch_element_data<A: AtomView>(
         &self,
@@ -269,6 +413,195 @@ impl<'p> QEqSolver<'p> {
                     .ok_or(CheqError::ParameterNotFound(atomic_number))
             })
             .collect()
+    }
+
+    /// Computes the external electrostatic potential at each QEq atom position.
+    ///
+    /// This method calculates the contribution of external point charges and uniform fields
+    /// to the effective electronegativity of each atom in the QEq system. The screened Coulomb
+    /// formalism is used for point charges to ensure physical behavior at short distances.
+    fn compute_external_potential<A: AtomView>(
+        &self,
+        atoms: &[A],
+        element_data: &[&'p ElementData],
+        external: &ExternalPotential,
+    ) -> Result<Vec<f64>, CheqError> {
+        let n_atoms = atoms.len();
+        let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
+
+        let external_element_data: Vec<&ElementData> = external
+            .point_charges()
+            .iter()
+            .map(|pc| {
+                self.parameters
+                    .elements
+                    .get(&pc.atomic_number)
+                    .ok_or(CheqError::ParameterNotFound(pc.atomic_number))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let lambda = self.options.lambda_scale;
+        let basis_type = self.options.basis_type;
+        let uniform_field = external.uniform_field();
+
+        let potentials: Vec<f64> = (0..n_atoms)
+            .into_par_iter()
+            .map(|i| {
+                let data_i = element_data[i];
+                let pos_i = positions[i];
+                let radius_i_bohr = data_i.radius / constants::BOHR_TO_ANGSTROM;
+
+                let mut v_ext = 0.0;
+
+                for (pc, data_ext) in external
+                    .point_charges()
+                    .iter()
+                    .zip(external_element_data.iter())
+                {
+                    let diff_sq = (pos_i[0] - pc.position[0]).powi(2)
+                        + (pos_i[1] - pc.position[1]).powi(2)
+                        + (pos_i[2] - pc.position[2]).powi(2);
+
+                    let dist_angstrom = diff_sq.sqrt();
+                    let dist_bohr = dist_angstrom / constants::BOHR_TO_ANGSTROM;
+                    let radius_ext_bohr = data_ext.radius / constants::BOHR_TO_ANGSTROM;
+
+                    let integral_hartree = match basis_type {
+                        BasisType::Gto => shielding::gto::calculate_integral(
+                            dist_bohr,
+                            data_i.principal_quantum_number,
+                            radius_i_bohr,
+                            data_ext.principal_quantum_number,
+                            radius_ext_bohr,
+                            lambda,
+                        ),
+                        BasisType::Sto => shielding::sto::calculate_integral(
+                            dist_bohr,
+                            data_i.principal_quantum_number,
+                            radius_i_bohr,
+                            data_ext.principal_quantum_number,
+                            radius_ext_bohr,
+                            lambda,
+                        ),
+                    };
+
+                    let j_ev = integral_hartree * constants::HARTREE_TO_EV;
+                    v_ext += pc.charge * j_ev;
+                }
+
+                v_ext -= uniform_field[0] * pos_i[0]
+                    + uniform_field[1] * pos_i[1]
+                    + uniform_field[2] * pos_i[2];
+
+                v_ext
+            })
+            .collect();
+
+        Ok(potentials)
+    }
+
+    /// Builds the invariant system with external potential contributions.
+    ///
+    /// This is analogous to `build_invariant_system` but incorporates the pre-computed
+    /// external potential into the RHS vector.
+    fn build_invariant_system_with_field<A: AtomView>(
+        &self,
+        atoms: &[A],
+        element_data: &[&'p ElementData],
+        total_charge: f64,
+        external_potential: &[f64],
+    ) -> Result<InvariantSystem, CheqError> {
+        let n_atoms = atoms.len();
+        let matrix_size = n_atoms + 1;
+
+        let mut base_matrix = Mat::zeros(matrix_size, matrix_size);
+        let mut rhs = Col::zeros(matrix_size);
+        let mut hydrogen_meta = Vec::new();
+
+        for i in 0..n_atoms {
+            let data_i = element_data[i];
+            base_matrix[(i, i)] = data_i.hardness;
+            rhs[i] = -(data_i.electronegativity + external_potential[i]);
+
+            if data_i.principal_quantum_number == 1 {
+                hydrogen_meta.push((i, data_i.hardness));
+            }
+        }
+
+        let positions: Vec<[f64; 3]> = atoms.iter().map(AtomView::position).collect();
+
+        let mat_view = UnsafeMatView {
+            ptr: base_matrix.as_ptr_mut(),
+            row_stride: base_matrix.row_stride(),
+            col_stride: base_matrix.col_stride(),
+        };
+
+        let lambda = self.options.lambda_scale;
+        let basis_type = self.options.basis_type;
+
+        (0..n_atoms).into_par_iter().for_each(|i| {
+            let data_i = element_data[i];
+            let pos_i = positions[i];
+            let radius_i_bohr = data_i.radius / constants::BOHR_TO_ANGSTROM;
+
+            for j in (i + 1)..n_atoms {
+                let pos_j = positions[j];
+                let diff_sq = (pos_i[0] - pos_j[0]).powi(2)
+                    + (pos_i[1] - pos_j[1]).powi(2)
+                    + (pos_i[2] - pos_j[2]).powi(2);
+
+                let dist_angstrom = diff_sq.sqrt();
+                let dist_bohr = dist_angstrom / constants::BOHR_TO_ANGSTROM;
+
+                let data_j = element_data[j];
+                let radius_j_bohr = data_j.radius / constants::BOHR_TO_ANGSTROM;
+
+                let integral_hartree = match basis_type {
+                    BasisType::Gto => shielding::gto::calculate_integral(
+                        dist_bohr,
+                        data_i.principal_quantum_number,
+                        radius_i_bohr,
+                        data_j.principal_quantum_number,
+                        radius_j_bohr,
+                        lambda,
+                    ),
+                    BasisType::Sto => shielding::sto::calculate_integral(
+                        dist_bohr,
+                        data_i.principal_quantum_number,
+                        radius_i_bohr,
+                        data_j.principal_quantum_number,
+                        radius_j_bohr,
+                        lambda,
+                    ),
+                };
+
+                let val_ev = integral_hartree * constants::HARTREE_TO_EV;
+
+                // SAFETY: Each unordered pair (i, j) with i < j is handled only by the thread for i.
+                // That thread writes (i, j) and (j, i), so no two threads write the same entries.
+                unsafe {
+                    mat_view.write(i, j, val_ev);
+                    mat_view.write(j, i, val_ev);
+                }
+            }
+        });
+
+        base_matrix
+            .col_mut(matrix_size - 1)
+            .subrows_mut(0, n_atoms)
+            .fill(1.0);
+        base_matrix
+            .row_mut(matrix_size - 1)
+            .subcols_mut(0, n_atoms)
+            .fill(1.0);
+
+        rhs[matrix_size - 1] = total_charge;
+
+        Ok(InvariantSystem {
+            base_matrix,
+            rhs,
+            hydrogen_meta,
+        })
     }
 
     /// Precomputes the geometry-invariant parts of the linear system.
