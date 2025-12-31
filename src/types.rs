@@ -290,3 +290,127 @@ impl ExternalPotential {
         self.point_charges.len()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_point_charge_new() {
+        let pc = PointCharge::new(8, [1.0, 2.0, 3.0], -0.5);
+
+        assert_eq!(pc.atomic_number, 8);
+        assert_eq!(pc.position, [1.0, 2.0, 3.0]);
+        assert_eq!(pc.charge, -0.5);
+    }
+
+    #[test]
+    fn test_point_charge_struct_literal() {
+        let pc = PointCharge {
+            atomic_number: 6,
+            position: [0.0, 0.0, 0.0],
+            charge: 0.1,
+        };
+
+        assert_eq!(pc.atomic_number, 6);
+        assert_eq!(pc.charge, 0.1);
+    }
+
+    #[test]
+    fn test_point_charge_clone() {
+        let pc1 = PointCharge::new(7, [1.0, 1.0, 1.0], 0.25);
+        let pc2 = pc1;
+
+        assert_eq!(pc1.charge, pc2.charge);
+        assert_eq!(pc1.position, pc2.position);
+    }
+
+    #[test]
+    fn test_external_potential_new() {
+        let ext = ExternalPotential::new();
+
+        assert!(ext.is_empty());
+        assert_eq!(ext.num_point_charges(), 0);
+        assert_eq!(ext.uniform_field(), [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_external_potential_default() {
+        let ext = ExternalPotential::default();
+
+        assert!(ext.is_empty());
+    }
+
+    #[test]
+    fn test_external_potential_from_point_charges() {
+        let charges = vec![
+            PointCharge::new(8, [1.0, 0.0, 0.0], -0.5),
+            PointCharge::new(1, [2.0, 0.0, 0.0], 0.25),
+        ];
+
+        let ext = ExternalPotential::from_point_charges(charges);
+
+        assert!(!ext.is_empty());
+        assert_eq!(ext.num_point_charges(), 2);
+        assert_eq!(ext.point_charges()[0].atomic_number, 8);
+        assert_eq!(ext.point_charges()[1].charge, 0.25);
+    }
+
+    #[test]
+    fn test_external_potential_from_uniform_field() {
+        let ext = ExternalPotential::from_uniform_field([0.1, 0.2, 0.3]);
+
+        assert!(!ext.is_empty());
+        assert_eq!(ext.num_point_charges(), 0);
+        assert_eq!(ext.uniform_field(), [0.1, 0.2, 0.3]);
+    }
+
+    #[test]
+    fn test_external_potential_builder_pattern() {
+        let charges = vec![PointCharge::new(6, [0.0, 0.0, 0.0], 0.1)];
+
+        let ext = ExternalPotential::new()
+            .with_point_charges(charges)
+            .with_uniform_field([0.0, 0.0, 1.0]);
+
+        assert!(!ext.is_empty());
+        assert_eq!(ext.num_point_charges(), 1);
+        assert_eq!(ext.uniform_field()[2], 1.0);
+    }
+
+    #[test]
+    fn test_external_potential_is_empty_with_only_field() {
+        let ext = ExternalPotential::from_uniform_field([0.0, 0.0, 0.001]);
+        assert!(!ext.is_empty());
+    }
+
+    #[test]
+    fn test_external_potential_is_empty_with_only_charges() {
+        let ext =
+            ExternalPotential::from_point_charges(vec![PointCharge::new(1, [0.0, 0.0, 0.0], 0.0)]);
+        assert!(!ext.is_empty());
+    }
+
+    #[test]
+    fn test_atom_view_implementation() {
+        let atom = Atom {
+            atomic_number: 6,
+            position: [1.0, 2.0, 3.0],
+        };
+
+        assert_eq!(atom.atomic_number(), 6);
+        assert_eq!(atom.position(), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_atom_copy_clone() {
+        let atom1 = Atom {
+            atomic_number: 8,
+            position: [0.0, 0.0, 0.0],
+        };
+        let atom2 = atom1;
+
+        assert_eq!(atom1.atomic_number, atom2.atomic_number);
+        assert_eq!(atom1.position, atom2.position);
+    }
+}
