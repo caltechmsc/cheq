@@ -16,7 +16,11 @@ keywords = [
     "force-fields",
     "molecular-dynamics",
 ]
-categories = ["science", "simulation", "command-line-utilities"]
+categories = [
+    "science::computational-chemistry::molecular-simulation",
+    "science::computational-chemistry::electronic-structure",
+    "command-line-utilities",
+]
 readme = "README.md"
 
 [dependencies]
